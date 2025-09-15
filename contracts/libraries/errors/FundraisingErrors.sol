@@ -6,8 +6,10 @@ library FundraisingErrors {
     error ZeroAddress();
     error NotAdmin();
     error NotIEOContract();
-    error RewardTrackingNotEnabled();
-    error ReentrantCallBlocked();
+    error NotEscrowContract(); // Removed after escrow removal
+    error ReentrantCallBlocked(); // Added for reentrancy guard
+    error RewardTrackingNotEnabled(); // Added for reward tracking state
+    error IEOContractNotSet(); // Added for IEO state
 
     // IEO related errors
     error IEONotActive();
@@ -22,4 +24,13 @@ library FundraisingErrors {
 
     // Reward Tracking related errors
     error NoRewardsToClaim();
+
+    // Escrow related errors (mostly removed)
+    error EscrowNotActive();
+
+    // New validation errors
+    error InvalidDelayDays();
+    error InvalidMinInvestment();
+    error InvalidMaxInvestment();
+    error InvalidInvestmentRange();
 }

@@ -19,16 +19,18 @@ contract IEO is Ownable, IIEO {
     
     // Constants
     address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    uint256 public constant override CLAIM_DELAY = 14 days;
-    uint256 public constant override REFUND_PERIOD = 14 days;
-    uint256 public constant override MIN_INVESTMENT = 100 * 1e6; // 100 USDC (6 decimals)
-    uint256 public constant override MAX_INVESTMENT = 100000 * 1e6; // 100,000 USDC (6 decimals)
-
-    // State variables
+    
+    // Immutable variables set during deployment
     address public immutable override tokenAddress;
+    address public immutable override admin;
+    uint256 public immutable override CLAIM_DELAY;
+    uint256 public immutable override REFUND_PERIOD;
+    uint256 public immutable override MIN_INVESTMENT;
+    uint256 public immutable override MAX_INVESTMENT;
+    
+    // State variables
     address public override rewardTrackingAddress;
     address public override priceOracle;
-    address public override admin;
     
     uint256 public override ieoStartTime;
     uint256 public override ieoEndTime;
@@ -67,11 +69,37 @@ contract IEO is Ownable, IIEO {
 
     constructor(
         address _tokenAddress,
-        address _admin
+        address _admin,
+        uint256 _delayDays,
+        uint256 _minInvestment,
+        uint256 _maxInvestment
     ) Ownable(msg.sender) {
+        if (_tokenAddress == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        if (_admin == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        if (_delayDays == 0) {
+            revert FundraisingErrors.InvalidDelayDays();
+        }
+        if (_minInvestment == 0) {
+            revert FundraisingErrors.InvalidMinInvestment();
+        }
+        if (_maxInvestment <= _minInvestment) {
+            revert FundraisingErrors.InvalidInvestmentRange();
+        }
+        
+        // Assign immutable variables
         tokenAddress = _tokenAddress;
-        rewardTrackingAddress = address(0);
         admin = _admin;
+        CLAIM_DELAY = _delayDays * 1 days;
+        REFUND_PERIOD = _delayDays * 1 days; // Same as claim delay
+        MIN_INVESTMENT = _minInvestment;
+        MAX_INVESTMENT = _maxInvestment;
+        
+        // Initialize state variables
+        rewardTrackingAddress = address(0);
         
         // Initialize reentrancy guard
         setRewardTrackingEnabled(false);
@@ -222,7 +250,7 @@ contract IEO is Ownable, IIEO {
         emit InvestmentMade(msg.sender, usdcAmount, tokenAmount);
     }
 
-    // Claim tokens (after 14 days)
+    // Claim tokens (after claim delay)
     function claimTokens() external override nonReentrant {
         Investment storage investment = investments[msg.sender];
         
@@ -246,7 +274,7 @@ contract IEO is Ownable, IIEO {
         emit TokensClaimed(msg.sender, investment.tokenAmount);
     }
 
-    // Refund investment (within 14 days)
+    // Refund investment (within refund period)
     function refundInvestment() external override nonReentrant {
         Investment storage investment = investments[msg.sender];
         
@@ -293,8 +321,9 @@ contract IEO is Ownable, IIEO {
         if (_admin == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
-        admin = _admin;
-        emit AdminUpdated(_admin);
+        // Note: admin is immutable, so this function cannot actually change it
+        // This is kept for interface compliance but will always revert
+        revert("Admin address is immutable");
     }
 
     // Emergency functions

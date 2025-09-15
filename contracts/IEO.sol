@@ -311,9 +311,45 @@ contract IEO is Ownable, IIEO {
         emit TokensClaimed(msg.sender, totalClaimableTokens);
     }
 
-    // Refund investment (within refund period) - refunds all refundable investments
-    // TODO: update logic: refund certain investment, or refund all investment.
-    function refundInvestment() external override nonReentrant {
+    // Refund specific investment by index
+    function refundInvestmentByIndex(uint256 investmentIndex) external nonReentrant {
+        Investment[] storage investments = userInvestments[msg.sender];
+        
+        if (investments.length == 0) {
+            revert FundraisingErrors.NotInvestor();
+        }
+        
+        if (investmentIndex >= investments.length) {
+            revert("Investment index out of bounds");
+        }
+
+        Investment storage investment = investments[investmentIndex];
+        
+        // Check if already claimed or refunded
+        if (investment.claimed) {
+            revert("Investment already claimed");
+        }
+        
+        if (investment.refunded) {
+            revert("Investment already refunded");
+        }
+        
+        // Check if this investment is refundable (within refund period)
+        if (block.timestamp > investment.investmentTime + REFUND_PERIOD) {
+            revert FundraisingErrors.RefundPeriodEnded();
+        }
+
+        // Mark as refunded
+        investment.refunded = true;
+
+        // Transfer USDC back to investor
+        IERC20(USDC_ADDRESS).transfer(msg.sender, investment.usdcAmount);
+
+        emit InvestmentRefunded(msg.sender, investment.usdcAmount);
+    }
+
+    // Refund all refundable investments
+    function refundAllInvestments() external override nonReentrant {
         Investment[] storage investments = userInvestments[msg.sender];
         
         if (investments.length == 0) {
@@ -400,6 +436,71 @@ contract IEO is Ownable, IIEO {
 
     function getUserInvestmentCount(address investor) external view returns (uint256) {
         return userInvestments[investor].length;
+    }
+
+    // Get specific investment by index
+    function getUserInvestmentByIndex(address investor, uint256 index) external view returns (Investment memory) {
+        Investment[] memory investments = userInvestments[investor];
+        if (index >= investments.length) {
+            revert("Investment index out of bounds");
+        }
+        return investments[index];
+    }
+
+    // Get refundable investments for a user
+    function getRefundableInvestments(address investor) external view returns (uint256[] memory refundableIndices) {
+        Investment[] memory investments = userInvestments[investor];
+        uint256 currentTime = block.timestamp;
+        uint256 refundableCount = 0;
+        
+        // First pass: count refundable investments
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment memory investment = investments[i];
+            if (!investment.claimed && !investment.refunded && 
+                currentTime <= investment.investmentTime + REFUND_PERIOD) {
+                refundableCount++;
+            }
+        }
+        
+        // Second pass: collect refundable indices
+        refundableIndices = new uint256[](refundableCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment memory investment = investments[i];
+            if (!investment.claimed && !investment.refunded && 
+                currentTime <= investment.investmentTime + REFUND_PERIOD) {
+                refundableIndices[index] = i;
+                index++;
+            }
+        }
+    }
+
+    // Get claimable investments for a user
+    function getClaimableInvestments(address investor) external view returns (uint256[] memory claimableIndices) {
+        Investment[] memory investments = userInvestments[investor];
+        uint256 currentTime = block.timestamp;
+        uint256 claimableCount = 0;
+        
+        // First pass: count claimable investments
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment memory investment = investments[i];
+            if (!investment.claimed && !investment.refunded && 
+                currentTime >= investment.investmentTime + CLAIM_DELAY) {
+                claimableCount++;
+            }
+        }
+        
+        // Second pass: collect claimable indices
+        claimableIndices = new uint256[](claimableCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment memory investment = investments[i];
+            if (!investment.claimed && !investment.refunded && 
+                currentTime >= investment.investmentTime + CLAIM_DELAY) {
+                claimableIndices[index] = i;
+                index++;
+            }
+        }
     }
 
     function getInvestorCount() external view override returns (uint256) {

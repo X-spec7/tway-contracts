@@ -67,46 +67,53 @@ contract IEOTest is Test {
         require(!ieo.isIEOActive(), "IEO should be inactive after end");
     }
 
-    function test_SeparateInvestmentTracking() public {
+    function test_UserInvestmentTracking() public {
         ieo.startIEO(30 days);
         
-        // Test that each investment is tracked separately
-        require(ieo.getUserInvestmentCount(user1) == 0, "User1 should have no investments initially");
-        require(ieo.getUserInvestmentCount(user2) == 0, "User2 should have no investments initially");
+        // Test user investment tracking functions
+        require(ieo.getUserInvestmentCount(user1) == 0, "User1 should have no investments");
+        require(ieo.getUserInvestmentCount(user2) == 0, "User2 should have no investments");
         
-        // Simulate first investment for user1
-        uint256 investment1Time = block.timestamp;
-        uint256 investment1Amount = 10000 * 1e6; // 10K USDC
+        // Test getUserInvestments function
+        IIEO.Investment[] memory user1Investments = ieo.getUserInvestments(user1);
+        require(user1Investments.length == 0, "User1 should have no investments array");
         
-        // Mock investment 1 by directly manipulating storage
-        // This is a simplified test - in real scenario, this would be done through invest()
-        vm.store(address(ieo), bytes32(uint256(11)), bytes32(investment1Amount)); // totalDeposited
-        
-        // Check that user1 is now an investor
-        require(ieo.getUserInvestmentCount(user1) == 0, "User1 should still have 0 investments (no real invest call)");
-        
-        // Test that the system tracks separate investments
-        require(ieo.getTotalDeposited() == investment1Amount, "Total deposited should be 10K USDC");
+        // Test getInvestment function (backward compatibility)
+        IIEO.Investment memory user1Investment = ieo.getInvestment(user1);
+        require(user1Investment.usdcAmount == 0, "User1 should have no investment amount");
     }
 
-    function test_MultipleInvestmentsPerUser() public {
+    function test_RefundableInvestments() public {
         ieo.startIEO(30 days);
         
-        // Test that multiple investments are tracked separately
-        require(ieo.getUserInvestmentCount(user1) == 0, "User1 should have no investments initially");
+        // Test refundable investments function
+        uint256[] memory refundableIndices = ieo.getRefundableInvestments(user1);
+        require(refundableIndices.length == 0, "User1 should have no refundable investments initially");
         
-        // Simulate multiple investments at different times
-        uint256 investment1Time = block.timestamp;
-        uint256 investment1Amount = 5000 * 1e6; // 5K USDC
+        // Test claimable investments function
+        uint256[] memory claimableIndices = ieo.getClaimableInvestments(user1);
+        require(claimableIndices.length == 0, "User1 should have no claimable investments initially");
+    }
+
+    function test_RefundInvestmentByIndex() public {
+        ieo.startIEO(30 days);
         
-        uint256 investment2Time = investment1Time + 5 days;
-        uint256 investment2Amount = 3000 * 1e6; // 3K USDC
+        // Test refunding by index when no investments exist
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(FundraisingErrors.NotInvestor.selector));
+        ieo.refundInvestmentByIndex(0);
         
-        // Mock investments by directly manipulating storage
-        vm.store(address(ieo), bytes32(uint256(11)), bytes32(investment1Amount + investment2Amount)); // totalDeposited
+        // Test refunding by index out of bounds
+        // This would require actual investments to test properly
+    }
+
+    function test_RefundAllInvestments() public {
+        ieo.startIEO(30 days);
         
-        // Test that the system can handle multiple investments
-        require(ieo.getTotalDeposited() == investment1Amount + investment2Amount, "Total deposited should be 8K USDC");
+        // Test refunding all investments when no investments exist
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(FundraisingErrors.NotInvestor.selector));
+        ieo.refundAllInvestments();
     }
 
     function test_WithdrawalLogic() public {
@@ -234,19 +241,16 @@ contract IEOTest is Test {
         require(ieo.getWithdrawableAmount() == 0, "No withdrawable amount after IEO end");
     }
 
-    function test_UserInvestmentTracking() public {
+    function test_InvestmentIndexValidation() public {
         ieo.startIEO(30 days);
         
-        // Test user investment tracking functions
-        require(ieo.getUserInvestmentCount(user1) == 0, "User1 should have no investments");
-        require(ieo.getUserInvestmentCount(user2) == 0, "User2 should have no investments");
+        // Test getting investment by index when no investments exist
+        vm.expectRevert("Investment index out of bounds");
+        ieo.getUserInvestmentByIndex(user1, 0);
         
-        // Test getUserInvestments function
-        IIEO.Investment[] memory user1Investments = ieo.getUserInvestments(user1);
-        require(user1Investments.length == 0, "User1 should have no investments array");
-        
-        // Test getInvestment function (backward compatibility)
-        IIEO.Investment memory user1Investment = ieo.getInvestment(user1);
-        require(user1Investment.usdcAmount == 0, "User1 should have no investment amount");
+        // Test refunding by index when no investments exist
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(FundraisingErrors.NotInvestor.selector));
+        ieo.refundInvestmentByIndex(0);
     }
 }

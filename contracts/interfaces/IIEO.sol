@@ -218,6 +218,28 @@ interface IIEO {
     function getUserInvestmentCount(address investor) external view returns (uint256);
     
     /**
+     * @notice Returns a specific investment by index for a specific investor
+     * @param investor The address of the investor
+     * @param index The index of the investment
+     * @return The investment information
+     */
+    function getUserInvestmentByIndex(address investor, uint256 index) external view returns (Investment memory);
+    
+    /**
+     * @notice Returns the indices of refundable investments for a specific investor
+     * @param investor The address of the investor
+     * @return refundableIndices Array of refundable investment indices
+     */
+    function getRefundableInvestments(address investor) external view returns (uint256[] memory refundableIndices);
+    
+    /**
+     * @notice Returns the indices of claimable investments for a specific investor
+     * @param investor The address of the investor
+     * @return claimableIndices Array of claimable investment indices
+     */
+    function getClaimableInvestments(address investor) external view returns (uint256[] memory claimableIndices);
+    
+    /**
      * @notice Returns the number of investors
      * @return The number of investors
      */
@@ -295,10 +317,17 @@ interface IIEO {
     function claimTokens() external;
     
     /**
-     * @notice Refunds investment within the refund period
-     * @dev Only callable by investors within refund period, refunds all refundable investments
+     * @notice Refunds a specific investment by index
+     * @dev Only callable by investors within refund period
+     * @param investmentIndex The index of the investment to refund
      */
-    function refundInvestment() external;
+    function refundInvestmentByIndex(uint256 investmentIndex) external;
+    
+    /**
+     * @notice Refunds all refundable investments
+     * @dev Only callable by investors within refund period
+     */
+    function refundAllInvestments() external;
     
     /**
      * @notice Withdraws USDC by business admin

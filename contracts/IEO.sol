@@ -51,13 +51,6 @@ contract IEO is Ownable, IIEO {
     // Investment counter for unique IDs
     uint256 public investmentCounter;
 
-    modifier onlyAdmin() {
-        if (msg.sender != admin && msg.sender != owner()) {
-            revert FundraisingErrors.NotAdmin();
-        }
-        _;
-    }
-
     modifier onlyBusinessAdmin() {
         if (msg.sender != businessAdmin && msg.sender != owner()) {
             revert FundraisingErrors.NotAdmin();
@@ -213,7 +206,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // Start IEO
-    function startIEO(uint256 duration) external override onlyOwner {
+    function startIEO(uint256 duration) external override onlyBusinessAdmin {
         require(!isIEOActive(), "IEO already active");
         
         ieoStartTime = block.timestamp;
@@ -224,7 +217,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // End IEO
-    function endIEO() external override onlyOwner {
+    function endIEO() external override onlyBusinessAdmin {
         require(isIEOActive(), "IEO not active");
         
         setIEOActive(false);
@@ -319,6 +312,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // Refund investment (within refund period) - refunds all refundable investments
+    // TODO: update logic: refund certain investment, or refund all investment.
     function refundInvestment() external override nonReentrant {
         Investment[] storage investments = userInvestments[msg.sender];
         
@@ -377,34 +371,14 @@ contract IEO is Ownable, IIEO {
         emit USDCWithdrawn(businessAdmin, withdrawableAmount);
     }
 
-    // Release USDC to reward tracking contract (after 30 days)
-    function releaseUSDCToRewardTracking() external override onlyOwner rewardTrackingEnabled {
-        require(block.timestamp >= ieoEndTime + 30 days, "30 days not passed since IEO ended");
-        
-        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
-        if (usdcBalance > 0) {
-            IERC20(USDC_ADDRESS).transfer(rewardTrackingAddress, usdcBalance);
-        }
-    }
-
     // Admin functions
-    function setPriceOracle(address _priceOracle) external override onlyAdmin {
+    function setPriceOracle(address _priceOracle) external override onlyOwner {
         if (_priceOracle == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
         priceOracle = _priceOracle;
         emit PriceOracleUpdated(_priceOracle);
     }
-
-    function setAdmin(address _admin) external override onlyOwner {
-        if (_admin == address(0)) {
-            revert FundraisingErrors.ZeroAddress();
-        }
-        // Note: admin is immutable, so this function cannot actually change it
-        // This is kept for interface compliance but will always revert
-        revert("Admin address is immutable");
-    }
-
     // Emergency functions
     function emergencyWithdrawUSDC(uint256 amount) external override onlyOwner {
         IERC20(USDC_ADDRESS).transfer(owner(), amount);
@@ -444,7 +418,7 @@ contract IEO is Ownable, IIEO {
         return IERC20(USDC_ADDRESS).balanceOf(address(this));
     }
 
-    // New view functions for withdrawal tracking
+    // TODO: consider gas-effective way with backend logic in mind.
     function getWithdrawableAmount() public view returns (uint256) {
         uint256 withdrawable = 0;
         uint256 currentTime = block.timestamp;

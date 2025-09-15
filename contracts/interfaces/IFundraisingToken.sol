@@ -3,7 +3,6 @@ pragma solidity ^0.8.28;
 
 /**
  * @title IFundraisingToken
- * @author FundraisingToken Team
  * @notice Interface for the FundraisingToken contract
  * @dev This interface defines the external functions available for the ERC20 token
  *      with whitelist functionality and frozen mint authority

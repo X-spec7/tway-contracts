@@ -212,7 +212,6 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
     }
 
     // Override transfer functions to include whitelist checks and reward tracking
-    // NOTE: Reentrancy guard needed because we make external calls to reward tracking
     function transfer(address to, uint256 amount) public override(ERC20, IFundraisingToken) callerWhitelisted onlyWhitelisted(_msgSender(), to) nonReentrant returns (bool) {
         bool success = super.transfer(to, amount);
         
@@ -235,17 +234,14 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         return success;
     }
 
-    // approve() doesn't need reentrancy guard - no external calls
     function approve(address spender, uint256 amount) public override(ERC20, IFundraisingToken) callerWhitelisted returns (bool) {
         return super.approve(spender, amount);
     }
 
-    // View functions
     function isMintAuthorityFrozen() public view override returns (bool) {
         return _mintAuthorityFrozen;
     }
 
-    // Mint function - now frozen after initial mint
     function mint(address to, uint256 amount) public override onlyOwner mintAuthorityNotFrozen {
         if (!_whitelist[to]) {
             revert FundraisingTokenErrors.RecipientMustBeWhitelisted();
@@ -253,7 +249,6 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         _mint(to, amount);
     }
 
-    // Burn function - no external calls, no reentrancy guard needed
     function burn(uint256 amount) public override callerWhitelisted {
         _burn(_msgSender(), amount);
     }

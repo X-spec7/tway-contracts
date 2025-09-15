@@ -10,6 +10,7 @@ import "./interfaces/IIEO.sol";
 contract IEO is Ownable, IIEO {
     // Storage slots for Yul assembly optimization
     bytes32 internal constant REWARD_TRACKING_ENABLED_SLOT = bytes32(keccak256("ieo.reward.tracking.enabled"));
+    bytes32 internal constant IEO_ACTIVE_SLOT = bytes32(keccak256("ieo.active.state"));
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("ieo.reentrancy.guard"));
     
     // Reentrancy guard constants
@@ -29,7 +30,6 @@ contract IEO is Ownable, IIEO {
     address public override priceOracle;
     address public override admin;
     
-    bool public override ieoActive;
     uint256 public override ieoStartTime;
     uint256 public override ieoEndTime;
     uint256 public override totalRaised;
@@ -46,7 +46,7 @@ contract IEO is Ownable, IIEO {
     }
 
     modifier onlyIEOActive() {
-        if (!ieoActive || block.timestamp < ieoStartTime || block.timestamp > ieoEndTime) {
+        if (!isIEOActive() || block.timestamp < ieoStartTime || block.timestamp > ieoEndTime) {
             revert FundraisingErrors.IEONotActive();
         }
         _;
@@ -75,6 +75,8 @@ contract IEO is Ownable, IIEO {
         
         // Initialize reentrancy guard
         setRewardTrackingEnabled(false);
+        // Initialize IEO as inactive
+        setIEOActive(false);
     }
 
     // Override functions to satisfy both Ownable and IIEO
@@ -103,6 +105,24 @@ contract IEO is Ownable, IIEO {
     function setRewardTrackingEnabled(bool enabled) internal {
         bytes32 slot = REWARD_TRACKING_ENABLED_SLOT;
         uint256 value = enabled ? 1 : 0;
+        assembly ("memory-safe") {
+            sstore(slot, value)
+        }
+    }
+
+    // Yul assembly functions for IEO active state
+    function isIEOActive() public view override returns (bool) {
+        bytes32 slot = IEO_ACTIVE_SLOT;
+        uint256 status;
+        assembly ("memory-safe") {
+            status := sload(slot)
+        }
+        return status == 1;
+    }
+
+    function setIEOActive(bool active) internal {
+        bytes32 slot = IEO_ACTIVE_SLOT;
+        uint256 value = active ? 1 : 0;
         assembly ("memory-safe") {
             sstore(slot, value)
         }
@@ -142,20 +162,20 @@ contract IEO is Ownable, IIEO {
 
     // Start IEO
     function startIEO(uint256 duration) external override onlyOwner {
-        require(!ieoActive, "IEO already active");
+        require(!isIEOActive(), "IEO already active");
         
         ieoStartTime = block.timestamp;
         ieoEndTime = block.timestamp + duration;
-        ieoActive = true;
+        setIEOActive(true);
         
         emit IEOStarted(ieoStartTime, ieoEndTime);
     }
 
     // End IEO
     function endIEO() external override onlyOwner {
-        require(ieoActive, "IEO not active");
+        require(isIEOActive(), "IEO not active");
         
-        ieoActive = false;
+        setIEOActive(false);
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
@@ -296,7 +316,7 @@ contract IEO is Ownable, IIEO {
     }
 
     function getIEOStatus() external view override returns (bool) {
-        return ieoActive && block.timestamp >= ieoStartTime && block.timestamp <= ieoEndTime;
+        return isIEOActive() && block.timestamp >= ieoStartTime && block.timestamp <= ieoEndTime;
     }
 
     function getUSDCBalance() external view override returns (uint256) {

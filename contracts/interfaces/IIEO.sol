@@ -157,7 +157,7 @@ interface IIEO {
      * @notice Returns whether the IEO is active
      * @return True if IEO is active, false otherwise
      */
-    function ieoActive() external view returns (bool);
+    function isIEOActive() external view returns (bool);
     
     /**
      * @notice Returns the IEO start time

@@ -3,7 +3,6 @@ pragma solidity ^0.8.28;
 
 /**
  * @title IRewardTracking
- * @author FundraisingToken Team
  * @notice Interface for the RewardTracking contract
  * @dev This interface defines the external functions for managing reward distribution
  *      based on token holdings and USDC deposits

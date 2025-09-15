@@ -32,4 +32,10 @@ library FundraisingTokenErrors {
     // Owner related errors
     error CallerNotOwner();
     error NewOwnerIsZeroAddress();
+    
+    // Reward tracking related errors
+    error RewardTrackingNotEnabled();
+    
+    // Reentrancy related errors
+    error ReentrantCallBlocked();
 }

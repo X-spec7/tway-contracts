@@ -23,10 +23,12 @@ contract IEO is Ownable, IIEO {
     // Immutable variables set during deployment
     address public immutable override tokenAddress;
     address public immutable override admin;
+    address public immutable businessAdmin;
     uint256 public immutable override CLAIM_DELAY;
     uint256 public immutable override REFUND_PERIOD;
     uint256 public immutable override MIN_INVESTMENT;
     uint256 public immutable override MAX_INVESTMENT;
+    uint256 public immutable WITHDRAWAL_DELAY; // Same as claim/refund delay
     
     // State variables
     address public override rewardTrackingAddress;
@@ -37,11 +39,27 @@ contract IEO is Ownable, IIEO {
     uint256 public override totalRaised;
     uint256 public override totalTokensSold;
     
-    mapping(address => Investment) public investments;
-    address[] public investors;
+    // Withdrawal tracking (per-investment based)
+    uint256 public totalDeposited;        // Total USDC received from all investments
+    uint256 public totalWithdrawn;        // Total USDC withdrawn by business admin
+    
+    // Separate investment tracking
+    mapping(address => Investment[]) public userInvestments;  // Array of investments per user
+    mapping(address => bool) public isInvestor;               // Track if user has ever invested
+    address[] public investors;                               // List of all investors
+    
+    // Investment counter for unique IDs
+    uint256 public investmentCounter;
 
     modifier onlyAdmin() {
         if (msg.sender != admin && msg.sender != owner()) {
+            revert FundraisingErrors.NotAdmin();
+        }
+        _;
+    }
+
+    modifier onlyBusinessAdmin() {
+        if (msg.sender != businessAdmin && msg.sender != owner()) {
             revert FundraisingErrors.NotAdmin();
         }
         _;
@@ -70,6 +88,7 @@ contract IEO is Ownable, IIEO {
     constructor(
         address _tokenAddress,
         address _admin,
+        address _businessAdmin,
         uint256 _delayDays,
         uint256 _minInvestment,
         uint256 _maxInvestment
@@ -78,6 +97,9 @@ contract IEO is Ownable, IIEO {
             revert FundraisingErrors.ZeroAddress();
         }
         if (_admin == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        if (_businessAdmin == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
         if (_delayDays == 0) {
@@ -93,10 +115,12 @@ contract IEO is Ownable, IIEO {
         // Assign immutable variables
         tokenAddress = _tokenAddress;
         admin = _admin;
+        businessAdmin = _businessAdmin;
         CLAIM_DELAY = _delayDays * 1 days;
         REFUND_PERIOD = _delayDays * 1 days; // Same as claim delay
         MIN_INVESTMENT = _minInvestment;
         MAX_INVESTMENT = _maxInvestment;
+        WITHDRAWAL_DELAY = _delayDays * 1 days; // Same as claim/refund delay
         
         // Initialize state variables
         rewardTrackingAddress = address(0);
@@ -207,14 +231,10 @@ contract IEO is Ownable, IIEO {
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
-    // Invest in IEO
+    // Invest in IEO (supports multiple separate investments)
     function invest(uint256 usdcAmount) external override onlyIEOActive nonReentrant {
         if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
             revert FundraisingErrors.InvalidInvestmentAmount();
-        }
-        
-        if (investments[msg.sender].usdcAmount > 0) {
-            revert FundraisingErrors.AlreadyInvested();
         }
 
         // Get token price from oracle
@@ -229,8 +249,11 @@ contract IEO is Ownable, IIEO {
         // Transfer USDC from investor
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
 
-        // Record investment
-        investments[msg.sender] = Investment({
+        // Update total deposited
+        totalDeposited += usdcAmount;
+
+        // Create new separate investment
+        Investment memory newInvestment = Investment({
             usdcAmount: usdcAmount,
             tokenAmount: tokenAmount,
             investmentTime: block.timestamp,
@@ -238,7 +261,15 @@ contract IEO is Ownable, IIEO {
             refunded: false
         });
 
-        investors.push(msg.sender);
+        // Add to user's investments array
+        userInvestments[msg.sender].push(newInvestment);
+
+        // Track if this is first investment
+        if (!isInvestor[msg.sender]) {
+            isInvestor[msg.sender] = true;
+            investors.push(msg.sender);
+        }
+
         totalRaised += usdcAmount;
         totalTokensSold += tokenAmount;
 
@@ -250,52 +281,100 @@ contract IEO is Ownable, IIEO {
         emit InvestmentMade(msg.sender, usdcAmount, tokenAmount);
     }
 
-    // Claim tokens (after claim delay)
+    // Claim tokens (after claim delay) - claims all unclaimed investments
     function claimTokens() external override nonReentrant {
-        Investment storage investment = investments[msg.sender];
+        Investment[] storage investments = userInvestments[msg.sender];
         
-        if (investment.usdcAmount == 0) {
+        if (investments.length == 0) {
             revert FundraisingErrors.NotInvestor();
         }
-        
-        if (investment.claimed) {
-            revert FundraisingErrors.AlreadyClaimed();
+
+        uint256 totalClaimableTokens = 0;
+        uint256 currentTime = block.timestamp;
+
+        // Check all investments for claimable tokens
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment storage investment = investments[i];
+            
+            // Skip if already claimed or refunded
+            if (investment.claimed || investment.refunded) {
+                continue;
+            }
+            
+            // Check if this investment is claimable (after claim delay)
+            if (currentTime >= investment.investmentTime + CLAIM_DELAY) {
+                totalClaimableTokens += investment.tokenAmount;
+                investment.claimed = true;
+            }
         }
-        
-        if (block.timestamp < investment.investmentTime + CLAIM_DELAY) {
+
+        if (totalClaimableTokens == 0) {
             revert FundraisingErrors.ClaimPeriodNotStarted();
         }
 
-        investment.claimed = true;
+        // Transfer all claimable tokens to investor
+        IERC20(tokenAddress).transfer(msg.sender, totalClaimableTokens);
 
-        // Transfer tokens to investor
-        IERC20(tokenAddress).transfer(msg.sender, investment.tokenAmount);
-
-        emit TokensClaimed(msg.sender, investment.tokenAmount);
+        emit TokensClaimed(msg.sender, totalClaimableTokens);
     }
 
-    // Refund investment (within refund period)
+    // Refund investment (within refund period) - refunds all refundable investments
     function refundInvestment() external override nonReentrant {
-        Investment storage investment = investments[msg.sender];
+        Investment[] storage investments = userInvestments[msg.sender];
         
-        if (investment.usdcAmount == 0) {
+        if (investments.length == 0) {
             revert FundraisingErrors.NotInvestor();
         }
-        
-        if (investment.refunded) {
-            revert FundraisingErrors.AlreadyRefunded();
+
+        uint256 totalRefundableUSDC = 0;
+        uint256 currentTime = block.timestamp;
+
+        // Check all investments for refundable USDC
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment storage investment = investments[i];
+            
+            // Skip if already claimed or refunded
+            if (investment.claimed || investment.refunded) {
+                continue;
+            }
+            
+            // Check if this investment is refundable (within refund period)
+            if (currentTime <= investment.investmentTime + REFUND_PERIOD) {
+                totalRefundableUSDC += investment.usdcAmount;
+                investment.refunded = true;
+            }
         }
-        
-        if (block.timestamp > investment.investmentTime + REFUND_PERIOD) {
+
+        if (totalRefundableUSDC == 0) {
             revert FundraisingErrors.RefundPeriodEnded();
         }
 
-        investment.refunded = true;
+        // Transfer all refundable USDC back to investor
+        IERC20(USDC_ADDRESS).transfer(msg.sender, totalRefundableUSDC);
 
-        // Transfer USDC back to investor
-        IERC20(USDC_ADDRESS).transfer(msg.sender, investment.usdcAmount);
+        emit InvestmentRefunded(msg.sender, totalRefundableUSDC);
+    }
 
-        emit InvestmentRefunded(msg.sender, investment.usdcAmount);
+    // Business admin withdrawal (after per-investment delay)
+    function withdrawUSDC(uint256 amount) external onlyBusinessAdmin nonReentrant {
+        require(amount > 0, "Amount must be greater than 0");
+        require(amount <= getWithdrawableAmount(), "Amount exceeds withdrawable amount");
+        
+        totalWithdrawn += amount;
+        IERC20(USDC_ADDRESS).transfer(businessAdmin, amount);
+        
+        emit USDCWithdrawn(businessAdmin, amount);
+    }
+
+    // Withdraw all available USDC
+    function withdrawAllUSDC() external onlyBusinessAdmin nonReentrant {
+        uint256 withdrawableAmount = getWithdrawableAmount();
+        require(withdrawableAmount > 0, "No withdrawable amount");
+        
+        totalWithdrawn += withdrawableAmount;
+        IERC20(USDC_ADDRESS).transfer(businessAdmin, withdrawableAmount);
+        
+        emit USDCWithdrawn(businessAdmin, withdrawableAmount);
     }
 
     // Release USDC to reward tracking contract (after 30 days)
@@ -333,7 +412,20 @@ contract IEO is Ownable, IIEO {
 
     // View functions
     function getInvestment(address investor) external view override returns (Investment memory) {
-        return investments[investor];
+        // Return the latest investment for backward compatibility
+        Investment[] memory investments = userInvestments[investor];
+        if (investments.length == 0) {
+            return Investment(0, 0, 0, false, false);
+        }
+        return investments[investments.length - 1];
+    }
+
+    function getUserInvestments(address investor) external view returns (Investment[] memory) {
+        return userInvestments[investor];
+    }
+
+    function getUserInvestmentCount(address investor) external view returns (uint256) {
+        return userInvestments[investor].length;
     }
 
     function getInvestorCount() external view override returns (uint256) {
@@ -351,9 +443,79 @@ contract IEO is Ownable, IIEO {
     function getUSDCBalance() external view override returns (uint256) {
         return IERC20(USDC_ADDRESS).balanceOf(address(this));
     }
+
+    // New view functions for withdrawal tracking
+    function getWithdrawableAmount() public view returns (uint256) {
+        uint256 withdrawable = 0;
+        uint256 currentTime = block.timestamp;
+        
+        // Check each investor's investments
+        for (uint256 i = 0; i < investors.length; i++) {
+            address investor = investors[i];
+            Investment[] memory investments = userInvestments[investor];
+            
+            // Check each investment separately
+            for (uint256 j = 0; j < investments.length; j++) {
+                Investment memory investment = investments[j];
+                
+                // Skip if already refunded
+                if (investment.refunded) {
+                    continue;
+                }
+                
+                // Check if this investment is withdrawable (14 days after investment)
+                if (currentTime >= investment.investmentTime + WITHDRAWAL_DELAY) {
+                    withdrawable += investment.usdcAmount;
+                }
+            }
+        }
+        
+        // Subtract already withdrawn amount
+        return withdrawable > totalWithdrawn ? withdrawable - totalWithdrawn : 0;
+    }
+
+    function getTotalDeposited() external view returns (uint256) {
+        return totalDeposited;
+    }
+
+    function getTotalWithdrawn() external view returns (uint256) {
+        return totalWithdrawn;
+    }
+
+    function getBusinessAdmin() external view returns (address) {
+        return businessAdmin;
+    }
+
+    function getWithdrawalDelay() external view returns (uint256) {
+        return WITHDRAWAL_DELAY;
+    }
+
+    // Helper function to get withdrawable amount for a specific investor
+    function getInvestorWithdrawableAmount(address investor) external view returns (uint256) {
+        Investment[] memory investments = userInvestments[investor];
+        uint256 withdrawable = 0;
+        uint256 currentTime = block.timestamp;
+        
+        for (uint256 i = 0; i < investments.length; i++) {
+            Investment memory investment = investments[i];
+            
+            if (investment.refunded) {
+                continue;
+            }
+            
+            if (currentTime >= investment.investmentTime + WITHDRAWAL_DELAY) {
+                withdrawable += investment.usdcAmount;
+            }
+        }
+        
+        return withdrawable;
+    }
 }
 
 // Interface for reward tracking
 interface IRewardTracking {
     function onTokenSold(address user, uint256 amount) external;
 }
+
+// New event for USDC withdrawal
+event USDCWithdrawn(address indexed businessAdmin, uint256 amount);

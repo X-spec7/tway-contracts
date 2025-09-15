@@ -88,6 +88,13 @@ interface IIEO {
      * @param enabled True if enabled, false if disabled
      */
     event RewardTrackingEnabled(bool enabled);
+    
+    /**
+     * @notice Emitted when USDC is withdrawn by business admin
+     * @param businessAdmin The address of the business admin
+     * @param amount The amount of USDC withdrawn
+     */
+    event USDCWithdrawn(address indexed businessAdmin, uint256 amount);
 
     // ============ Constants ============
     
@@ -190,11 +197,25 @@ interface IIEO {
     function isRewardTrackingEnabled() external view returns (bool);
     
     /**
-     * @notice Returns investment information for a specific investor
+     * @notice Returns investment information for a specific investor (latest investment for backward compatibility)
      * @param investor The address of the investor
-     * @return investment The investment information
+     * @return investment The latest investment information
      */
     function getInvestment(address investor) external view returns (Investment memory investment);
+    
+    /**
+     * @notice Returns all investments for a specific investor
+     * @param investor The address of the investor
+     * @return investments Array of all investments
+     */
+    function getUserInvestments(address investor) external view returns (Investment[] memory investments);
+    
+    /**
+     * @notice Returns the number of investments for a specific investor
+     * @param investor The address of the investor
+     * @return The number of investments
+     */
+    function getUserInvestmentCount(address investor) external view returns (uint256);
     
     /**
      * @notice Returns the number of investors
@@ -220,27 +241,77 @@ interface IIEO {
      * @return The USDC balance
      */
     function getUSDCBalance() external view returns (uint256);
+    
+    /**
+     * @notice Returns the business admin address
+     * @return The business admin address
+     */
+    function getBusinessAdmin() external view returns (address);
+    
+    /**
+     * @notice Returns the withdrawal delay period
+     * @return The withdrawal delay in seconds
+     */
+    function getWithdrawalDelay() external view returns (uint256);
+    
+    /**
+     * @notice Returns the total amount deposited
+     * @return The total USDC deposited
+     */
+    function getTotalDeposited() external view returns (uint256);
+    
+    /**
+     * @notice Returns the total amount withdrawn
+     * @return The total USDC withdrawn
+     */
+    function getTotalWithdrawn() external view returns (uint256);
+    
+    /**
+     * @notice Returns the withdrawable amount (per-investment based)
+     * @return The amount of USDC that can be withdrawn
+     */
+    function getWithdrawableAmount() external view returns (uint256);
+    
+    /**
+     * @notice Returns the withdrawable amount for a specific investor
+     * @param investor The address of the investor
+     * @return The amount of USDC that can be withdrawn for this investor
+     */
+    function getInvestorWithdrawableAmount(address investor) external view returns (uint256);
 
     // ============ State-Changing Functions ============
     
     /**
      * @notice Invests USDC to purchase tokens
-     * @dev Only callable during active IEO
+     * @dev Only callable during active IEO, supports multiple separate investments
      * @param usdcAmount The amount of USDC to invest
      */
     function invest(uint256 usdcAmount) external;
     
     /**
      * @notice Claims purchased tokens after the claim delay
-     * @dev Only callable by investors after claim delay
+     * @dev Only callable by investors after claim delay, claims all claimable investments
      */
     function claimTokens() external;
     
     /**
      * @notice Refunds investment within the refund period
-     * @dev Only callable by investors within refund period
+     * @dev Only callable by investors within refund period, refunds all refundable investments
      */
     function refundInvestment() external;
+    
+    /**
+     * @notice Withdraws USDC by business admin
+     * @dev Only callable by business admin after per-investment delay
+     * @param amount The amount of USDC to withdraw
+     */
+    function withdrawUSDC(uint256 amount) external;
+    
+    /**
+     * @notice Withdraws all available USDC by business admin
+     * @dev Only callable by business admin after per-investment delay
+     */
+    function withdrawAllUSDC() external;
 
     // ============ Owner Functions ============
     

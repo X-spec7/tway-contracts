@@ -152,13 +152,6 @@ interface IRewardTracking {
     // ============ Owner Functions ============
     
     /**
-     * @notice Sets the IEO contract address
-     * @dev Only callable by the owner
-     * @param _ieoContract The address of the IEO contract
-     */
-    function setIEOContract(address _ieoContract) external;
-    
-    /**
      * @notice Emergency function to withdraw USDC from the contract
      * @dev Only callable by the owner
      * @param amount The amount of USDC to withdraw

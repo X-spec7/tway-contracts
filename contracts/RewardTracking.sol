@@ -170,14 +170,7 @@ contract RewardTracking is Ownable, IRewardTracking {
         
         emit RewardClaimed(msg.sender, pendingReward);
     }
-
-    // Set IEO contract address (required by interface)
-    function setIEOContract(address _ieoContract) external override onlyOwner {
-        // Note: ieoContract is immutable, so this function cannot actually change it
-        // This is kept for interface compliance but will always revert
-        revert("IEO contract address is immutable");
-    }
-
+    
     // View functions
     function getPendingReward(address user) external view override returns (uint256) {
         UserRewardTracking memory userTracking = userRewardTrackings[user];

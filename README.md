@@ -1,254 +1,111 @@
-# FundraisingToken
+# Tway Fundraising System
 
-A secure, whitelisted ERC20 token contract designed for fundraising purposes with a permanently frozen mint authority and centralized error handling.
+A complete fundraising platform with ERC20 token, IEO (Initial Exchange Offering), and reward tracking system.
 
-##  Features
+##  Overview
 
-### Core Functionality
-- **ERC20 Standard**: Full compliance with ERC20 token standard using OpenZeppelin contracts
-- **Fixed Supply**: Permanently frozen mint authority after initial deployment
-- **Whitelist System**: Only whitelisted addresses can interact with the token
-- **Centralized Error Handling**: Custom errors for better gas efficiency and debugging
-- **Owner Controls**: Owner can manage whitelist and transfer ownership
+This project provides a comprehensive fundraising solution with:
+- **FundraisingToken**: Whitelisted ERC20 token with frozen mint authority
+- **IEO Contract**: Token sales with price oracle integration and time-based controls
+- **Reward Tracking**: Automated reward distribution system for token holders
 
-### Security Features
-- **Dual Whitelist Check**: Both sender and recipient must be whitelisted for transfers
-- **Frozen Mint Authority**: No additional tokens can be minted after deployment
-- **Access Control**: Only owner can manage whitelist
-- **Zero Address Protection**: Prevents whitelisting zero addresses
+##  Key Features
+
+### FundraisingToken
+-  ERC20 compliant with whitelist system
+-  Permanently frozen mint authority
+-  Reward tracking integration
+
+### IEO Contract
+-  Token sales with USDC
+-  Price oracle integration
+-  Configurable claim/refund periods
+-  Multi-investment support per user
+-  Business admin withdrawal system
+
+### Reward Tracking
+-  High-precision reward calculations
+-  Per-token reward distribution
+-  Transfer-based reward updates
+-  USDC reward claims
+
+##  Architecture
+
+```
+FundraisingToken     RewardTracking      IEO Contract
+                                       
+  Whitelist           Reward Pool       Investment Pool
+  (ERC20)            (USDC Rewards)      (USDC Sales)
+```
+
+##  Quick Start
+
+### Installation
+```bash
+npm install
+npx hardhat compile
+```
+
+### Testing
+```bash
+# Run all tests
+npx hardhat test
+
+# Run specific contract tests
+npx hardhat test contracts/FundraisingToken.t.sol
+npx hardhat test contracts/IEO.t.sol
+```
+
+### Deployment
+```bash
+# Deploy to local network
+npx hardhat node
+npx hardhat ignition deploy ignition/modules/FundraisingSystem.ts --network localhost
+```
 
 ##  Contract Details
 
+| Contract | Purpose | Key Features |
+|----------|---------|--------------|
+| **FundraisingToken** | ERC20 Token | Whitelist, Frozen Mint, Reward Integration |
+| **IEO** | Token Sales | Oracle Pricing, Time Controls, Multi-Investment |
+| **RewardTracking** | Reward Distribution | High Precision, Transfer Updates, USDC Claims |
+
+##  Configuration
+
+### IEO Parameters
+- **Claim Delay**: 14 days (configurable)
+- **Refund Period**: 14 days (configurable)
+- **Withdrawal Delay**: 14 days (configurable)
+- **Min Investment**: 100 USDC (configurable)
+- **Max Investment**: 100,000 USDC (configurable)
+
+### Token Parameters
 - **Name**: FundraisingToken
 - **Symbol**: FRT
 - **Decimals**: 18
 - **Initial Supply**: 1,000,000 tokens
-- **Mint Authority**: Permanently frozen after deployment
-
-##  Project Structure
-
-```
-contracts/
- libraries/
-    errors/
-       FundraisingTokenErrors.sol    # Centralized error definitions
-    Ownable.sol                       # Custom Ownable implementation
- dependencies/
-    openzeppelin/                     # OpenZeppelin contracts
- FundraisingToken.sol                  # Main token contract
- FundraisingToken.t.sol                # Solidity tests
-
-test/
- FundraisingToken.ts                   # TypeScript tests
-
-ignition/modules/
- FundraisingToken.ts                   # Deployment module
-```
-
-##  Installation
-
-1. Clone the repository
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Compile contracts:
-```bash
-npx hardhat compile
-```
+- **Mint Authority**: Permanently frozen
 
 ##  Testing
 
-Run all tests:
-```bash
-npx hardhat test
-```
+The project includes comprehensive tests:
+- **Unit Tests**: Individual contract functionality
+- **Integration Tests**: Cross-contract interactions
+- **Security Tests**: Vulnerability detection
+- **Gas Tests**: Performance optimization
 
-Run specific test patterns:
-```bash
-# Run only TypeScript tests
-npx hardhat test test/FundraisingToken.ts
+##  Deployment Strategy
 
-# Run tests with specific pattern
-npx hardhat test --grep "mint"
+1. **FundraisingToken**: Deploy first with zero reward tracking address
+2. **IEO Contract**: Deploy with token address, set reward tracking later
+3. **RewardTracking**: Deploy last with both token and IEO addresses
+4. **Configuration**: Set cross-references and enable functionality
 
-# Run with verbose output
-npx hardhat test --verbose
+##  Workflow
 
-# Run with gas reporting
-npx hardhat test --gas-report
-```
-
-##  Deployment
-
-Deploy using Hardhat Ignition:
-```bash
-npx hardhat ignition deploy ignition/modules/FundraisingToken.ts --network <network>
-```
-
-##  Usage
-
-### Basic Token Operations
-
-#### Transfer (Requires Both Addresses Whitelisted)
-```solidity
-// Both sender and recipient must be whitelisted
-token.transfer(recipient, amount);
-```
-
-#### Approve (Requires Caller and Spender Whitelisted)
-```solidity
-// Both caller and spender must be whitelisted
-token.approve(spender, amount);
-```
-
-#### TransferFrom (Requires All Addresses Whitelisted)
-```solidity
-// Sender, recipient, and caller must be whitelisted
-token.transferFrom(from, to, amount);
-```
-
-### Whitelist Management (Owner Only)
-
-#### Add to Whitelist
-```solidity
-token.addToWhitelist(address);
-```
-
-#### Remove from Whitelist
-```solidity
-token.removeFromWhitelist(address);
-```
-
-#### Batch Operations
-```solidity
-address[] memory accounts = [addr1, addr2, addr3];
-token.batchAddToWhitelist(accounts);
-token.batchRemoveFromWhitelist(accounts);
-```
-
-#### Check Whitelist Status
-```solidity
-bool isWhitelisted = token.isWhitelisted(address);
-```
-
-### Token Burning (Whitelisted Callers Only)
-
-```solidity
-// Caller must be whitelisted
-token.burn(amount);
-```
-
-### View Functions
-
-```solidity
-// Check if mint authority is frozen (always true after deployment)
-bool frozen = token.isMintAuthorityFrozen();
-
-// Standard ERC20 view functions
-uint256 totalSupply = token.totalSupply();
-uint256 balance = token.balanceOf(address);
-uint256 allowance = token.allowance(owner, spender);
-```
-
-##  Security Model
-
-### Whitelist Requirements
-- **Transfers**: Both sender and recipient must be whitelisted
-- **Approvals**: Both caller and spender must be whitelisted
-- **TransferFrom**: Sender, recipient, and caller must be whitelisted
-- **Burning**: Caller must be whitelisted
-
-### Access Control
-- **Owner**: Can manage whitelist and transfer ownership
-- **Whitelisted Users**: Can perform token operations
-- **Non-whitelisted Users**: Cannot interact with token
-
-### Fixed Supply
-- **Initial Mint**: 1,000,000 tokens minted to deployer
-- **Mint Authority**: Permanently frozen after deployment
-- **Supply Changes**: Only through burning (reduces total supply)
-
-##  Events
-
-### Whitelist Events
-```solidity
-event AddressWhitelisted(address indexed account);
-event AddressRemovedFromWhitelist(address indexed account);
-```
-
-### Mint Authority Event
-```solidity
-event MintAuthorityFrozen();
-```
-
-### Standard ERC20 Events
-```solidity
-event Transfer(address indexed from, address indexed to, uint256 value);
-event Approval(address indexed owner, address indexed spender, uint256 value);
-```
-
-##  Error Handling
-
-The contract uses custom errors for gas efficiency:
-
-### Whitelist Errors
-- `CallerNotWhitelisted()` - Caller is not whitelisted
-- `SenderNotWhitelisted()` - Sender is not whitelisted
-- `RecipientNotWhitelisted()` - Recipient is not whitelisted
-- `SpenderNotWhitelisted()` - Spender is not whitelisted
-- `AddressAlreadyWhitelisted()` - Address already whitelisted
-- `AddressNotWhitelisted()` - Address not whitelisted
-- `CannotWhitelistZeroAddress()` - Cannot whitelist zero address
-- `RecipientMustBeWhitelisted()` - Recipient must be whitelisted
-
-### Mint Authority Errors
-- `MintAuthorityFrozen()` - Mint authority is frozen
-
-### Owner Errors
-- `CallerNotOwner()` - Caller is not the owner
-- `NewOwnerIsZeroAddress()` - New owner is zero address
-
-##  Development
-
-### Prerequisites
-- Node.js 22.10.0+ (LTS recommended)
-- npm or yarn
-
-### Scripts
-```bash
-# Compile contracts
-npx hardhat compile
-
-# Run tests
-npx hardhat test
-
-# Run tests with coverage
-npx hardhat coverage
-
-# Deploy to local network
-npx hardhat node
-npx hardhat ignition deploy ignition/modules/FundraisingToken.ts --network localhost
-```
-
-##  License
-
-MIT License - see LICENSE file for details.
-
-##  Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-##  Support
-
-For questions or issues, please open an issue on the GitHub repository.
-
----
-
-**Note**: This token is designed for fundraising purposes with a fixed supply. The mint authority is permanently frozen after deployment, ensuring no additional tokens can be created.
+1. **Setup**: Deploy contracts and configure addresses
+2. **IEO Phase**: Users invest USDC to buy tokens
+3. **Claim Phase**: Users claim tokens after delay
+4. **Reward Phase**: USDC rewards distributed to token holders
+5. **Withdrawal**: Business admin withdraws available USDC

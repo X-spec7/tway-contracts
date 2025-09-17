@@ -95,6 +95,14 @@ interface IIEO {
      * @param amount The amount of USDC withdrawn
      */
     event USDCWithdrawn(address indexed businessAdmin, uint256 amount);
+    
+    /**
+     * @notice Emitted when price validation is updated
+     * @param minPrice The minimum acceptable token price
+     * @param maxPrice The maximum acceptable token price
+     * @param enabled Whether price validation is enabled
+     */
+    event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice, bool enabled);
 
     // ============ Constants ============
     
@@ -300,6 +308,18 @@ interface IIEO {
      * @return The amount of USDC that can be withdrawn for this investor
      */
     function getInvestorWithdrawableAmount(address investor) external view returns (uint256);
+    
+    /**
+     * @notice Returns the minimum acceptable token price
+     * @return The minimum token price
+     */
+    function getMinTokenPrice() external view returns (uint256);
+    
+    /**
+     * @notice Returns the maximum acceptable token price
+     * @return The maximum token price
+     */
+    function getMaxTokenPrice() external view returns (uint256);
 
     // ============ State-Changing Functions ============
     
@@ -327,7 +347,7 @@ interface IIEO {
      * @notice Refunds all refundable investments
      * @dev Only callable by investors within refund period
      */
-    function refundAllInvestments() external;
+    function refundInvestment() external;
     
     /**
      * @notice Withdraws USDC by business admin
@@ -405,4 +425,14 @@ interface IIEO {
      * @param _admin The address of the new admin
      */
     function setAdmin(address _admin) external;
+    
+    // ============ Business Admin Functions ============
+    
+    /**
+     * @notice Sets the price validation bounds
+     * @dev Only callable by business admin
+     * @param _minTokenPrice The minimum acceptable token price
+     * @param _maxTokenPrice The maximum acceptable token price
+     */
+    function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice) external;
 }

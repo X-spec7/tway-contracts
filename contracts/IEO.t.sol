@@ -113,7 +113,7 @@ contract IEOTest is Test {
         // Test refunding all investments when no investments exist
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(FundraisingErrors.NotInvestor.selector));
-        ieo.refundAllInvestments();
+        ieo.refundInvestment();
     }
 
     function test_WithdrawalLogic() public {

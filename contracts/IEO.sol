@@ -39,6 +39,10 @@ contract IEO is Ownable, IIEO {
     uint256 public override totalRaised;
     uint256 public override totalTokensSold;
     
+    // Price validation (adjustable by business admin)
+    uint256 private minTokenPrice;        // Minimum acceptable token price
+    uint256 private maxTokenPrice;        // Maximum acceptable token price
+    
     // Withdrawal tracking (per-investment based)
     uint256 public totalDeposited;        // Total USDC received from all investments
     uint256 public totalWithdrawn;        // Total USDC withdrawn by business admin
@@ -84,7 +88,9 @@ contract IEO is Ownable, IIEO {
         address _businessAdmin,
         uint256 _delayDays,
         uint256 _minInvestment,
-        uint256 _maxInvestment
+        uint256 _maxInvestment,
+        uint256 _minTokenPrice,
+        uint256 _maxTokenPrice
     ) Ownable(msg.sender) {
         if (_tokenAddress == address(0)) {
             revert FundraisingErrors.ZeroAddress();
@@ -104,6 +110,9 @@ contract IEO is Ownable, IIEO {
         if (_maxInvestment <= _minInvestment) {
             revert FundraisingErrors.InvalidInvestmentRange();
         }
+        if (_minTokenPrice > 0 && _maxTokenPrice > 0 && _minTokenPrice >= _maxTokenPrice) {
+            revert FundraisingErrors.InvalidInvestmentRange();
+        }
         
         // Assign immutable variables
         tokenAddress = _tokenAddress;
@@ -117,6 +126,9 @@ contract IEO is Ownable, IIEO {
         
         // Initialize state variables
         rewardTrackingAddress = address(0);
+
+        minTokenPrice = _minTokenPrice;
+        maxTokenPrice = _maxTokenPrice;
         
         // Initialize reentrancy guard
         setRewardTrackingEnabled(false);
@@ -205,6 +217,18 @@ contract IEO is Ownable, IIEO {
         emit RewardTrackingEnabled(true);
     }
 
+    // Price validation management (business admin only)
+    function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice) external onlyBusinessAdmin {
+        if (_minTokenPrice > 0 && _maxTokenPrice > 0 && _minTokenPrice >= _maxTokenPrice) {
+            revert FundraisingErrors.InvalidInvestmentRange();
+        }
+        
+        minTokenPrice = _minTokenPrice;
+        maxTokenPrice = _maxTokenPrice;
+        
+        emit PriceValidationUpdated(_minTokenPrice, _maxTokenPrice, true);
+    }
+
     // Start IEO
     function startIEO(uint256 duration) external override onlyBusinessAdmin {
         require(!isIEOActive(), "IEO already active");
@@ -232,12 +256,19 @@ contract IEO is Ownable, IIEO {
 
         // Get token price from oracle
         (uint256 tokenPrice, uint256 priceDecimals) = IPriceOracle(priceOracle).getPrice(tokenAddress);
-        if (tokenPrice == 0) {
+        if (tokenPrice <= 0) {
+            revert FundraisingErrors.InvalidPrice();
+        }
+
+        if (minTokenPrice > 0 && tokenPrice < minTokenPrice) {
+            revert FundraisingErrors.InvalidPrice();
+        }
+        if (maxTokenPrice > 0 && tokenPrice > maxTokenPrice) {
             revert FundraisingErrors.InvalidPrice();
         }
 
         // Calculate token amount (USDC has 6 decimals, token has 18 decimals)
-        uint256 tokenAmount = (usdcAmount * 1e18 * (10 ** priceDecimals)) / tokenPrice;
+        uint256 tokenAmount = (usdcAmount * (10 ** priceDecimals)) / tokenPrice;
 
         // Transfer USDC from investor
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
@@ -349,7 +380,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // Refund all refundable investments
-    function refundAllInvestments() external override nonReentrant {
+    function refundInvestment() external override nonReentrant {
         Investment[] storage investments = userInvestments[msg.sender];
         
         if (investments.length == 0) {
@@ -407,6 +438,23 @@ contract IEO is Ownable, IIEO {
         emit USDCWithdrawn(businessAdmin, withdrawableAmount);
     }
 
+    // Release USDC to reward tracking contract (after 30 days)
+    function releaseUSDCToRewardTracking() external override onlyOwner rewardTrackingEnabled {
+        require(block.timestamp >= ieoEndTime + 30 days, "30 days not passed since IEO ended");
+        
+        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
+        if (usdcBalance > 0) {
+            IERC20(USDC_ADDRESS).transfer(rewardTrackingAddress, usdcBalance);
+        }
+    }
+
+    // Set admin address (interface compliance)
+    function setAdmin(address _admin) external override onlyOwner {
+        // Note: admin is immutable, so this function cannot actually change it
+        // This is kept for interface compliance but will always revert
+        revert("Admin address is immutable");
+    }
+
     // Admin functions
     function setPriceOracle(address _priceOracle) external override onlyOwner {
         if (_priceOracle == address(0)) {
@@ -415,6 +463,7 @@ contract IEO is Ownable, IIEO {
         priceOracle = _priceOracle;
         emit PriceOracleUpdated(_priceOracle);
     }
+
     // Emergency functions
     function emergencyWithdrawUSDC(uint256 amount) external override onlyOwner {
         IERC20(USDC_ADDRESS).transfer(owner(), amount);
@@ -585,6 +634,15 @@ contract IEO is Ownable, IIEO {
         
         return withdrawable;
     }
+
+    // Price validation view functions
+    function getMinTokenPrice() external view returns (uint256) {
+        return minTokenPrice;
+    }
+
+    function getMaxTokenPrice() external view returns (uint256) {
+        return maxTokenPrice;
+    }
 }
 
 // Interface for reward tracking
@@ -592,5 +650,6 @@ interface IRewardTracking {
     function onTokenSold(address user, uint256 amount) external;
 }
 
-// New event for USDC withdrawal
+// New events for price validation
+event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice);
 event USDCWithdrawn(address indexed businessAdmin, uint256 amount);

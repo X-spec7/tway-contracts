@@ -24,6 +24,7 @@ library FundraisingErrors {
 
     // Reward Tracking related errors
     error NoRewardsToClaim();
+    error NoTokensSold(); // Added for when no tokens are sold
 
     // Escrow related errors (mostly removed)
     error EscrowNotActive();
@@ -33,4 +34,7 @@ library FundraisingErrors {
     error InvalidMinInvestment();
     error InvalidMaxInvestment();
     error InvalidInvestmentRange();
+    error InvalidAmount();
+    error AmountExceedsWithdrawable();
+    error NoWithdrawableAmount();
 }

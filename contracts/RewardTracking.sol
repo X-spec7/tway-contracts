@@ -49,6 +49,7 @@ contract RewardTracking is Ownable, IRewardTracking {
         poolInfo = PoolInfo({
             totalTokenSold: 0,
             accumulatedRewardPerToken: 0,
+            totalUSDCDeposited: 0,
             lastRewardBlock: block.number
         });
     }
@@ -87,26 +88,29 @@ contract RewardTracking is Ownable, IRewardTracking {
         }
     }
 
-    // Update pool when USDC is deposited
-    function updatePool() external override onlyOwner nonReentrant {
-        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
+    function depositUSDC(uint256 amount) external onlyOwner nonReentrant {
+        // Revert if no tokens have been sold yet
+        if (poolInfo.totalTokenSold == 0) {
+            revert FundraisingErrors.NoTokensSold();
+        }
         
-        if (usdcBalance > 0) {
-            if (poolInfo.totalTokenSold > 0) {
-                // Calculate new accumulated reward per token
-                uint256 newRewardPerToken = poolInfo.accumulatedRewardPerToken + 
-                    (usdcBalance * PRECISION) / poolInfo.totalTokenSold;
-                
-                poolInfo.accumulatedRewardPerToken = newRewardPerToken;
-            } else {
-                // Edge case: no tokens sold yet, just accumulate the reward
-                // This will be distributed when tokens are sold
-                poolInfo.accumulatedRewardPerToken += (usdcBalance * PRECISION) / 1; // Use 1 as divisor to avoid division by zero
-            }
+        IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), amount);
+        _updatePool(amount);
+    }
+
+    // Update pool when USDC is deposited
+    function _updatePool(uint256 amount) internal {
+        if (amount > 0) {
+            poolInfo.totalUSDCDeposited += amount;
             
+            // Calculate new accumulated reward per token
+            uint256 newRewardPerToken = poolInfo.accumulatedRewardPerToken + 
+                (amount * PRECISION) / poolInfo.totalTokenSold;
+            
+            poolInfo.accumulatedRewardPerToken = newRewardPerToken;
             poolInfo.lastRewardBlock = block.number;
             
-            emit RewardDeposited(usdcBalance, poolInfo.accumulatedRewardPerToken);
+            emit RewardDeposited(amount, poolInfo.accumulatedRewardPerToken);
         }
     }
 
@@ -167,6 +171,13 @@ contract RewardTracking is Ownable, IRewardTracking {
         emit RewardClaimed(msg.sender, pendingReward);
     }
 
+    // Set IEO contract address (required by interface)
+    function setIEOContract(address _ieoContract) external override onlyOwner {
+        // Note: ieoContract is immutable, so this function cannot actually change it
+        // This is kept for interface compliance but will always revert
+        revert("IEO contract address is immutable");
+    }
+
     // View functions
     function getPendingReward(address user) external view override returns (uint256) {
         UserRewardTracking memory userTracking = userRewardTrackings[user];
@@ -184,12 +195,5 @@ contract RewardTracking is Ownable, IRewardTracking {
     // Emergency function
     function emergencyWithdrawUSDC(uint256 amount) external override onlyOwner {
         IERC20(USDC_ADDRESS).transfer(owner(), amount);
-    }
-
-    // This function is not needed since ieoContract is immutable, but required by interface
-    function setIEOContract(address _ieoContract) external override onlyOwner {
-        // This function is not implemented since ieoContract is immutable
-        // It's only here to satisfy the interface
-        revert("IEO contract address is immutable");
     }
 }

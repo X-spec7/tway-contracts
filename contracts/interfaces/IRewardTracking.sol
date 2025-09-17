@@ -24,11 +24,13 @@ interface IRewardTracking {
      * @notice Structure to track pool information
      * @param totalTokenSold Total amount of tokens sold through IEO
      * @param accumulatedRewardPerToken Accumulated reward per token (in USDC)
+     * @param totalUSDCDeposited Total amount of USDC deposited
      * @param lastRewardBlock Last block number when pool was updated
      */
     struct PoolInfo {
         uint256 totalTokenSold;
         uint256 accumulatedRewardPerToken;
+        uint256 totalUSDCDeposited;
         uint256 lastRewardBlock;
     }
 
@@ -123,12 +125,6 @@ interface IRewardTracking {
     function getPendingReward(address user) external view returns (uint256);
 
     // ============ State-Changing Functions ============
-    
-    /**
-     * @notice Updates the reward pool when USDC is deposited
-     * @dev This function should be called before any reward calculations
-     */
-    function updatePool() external;
     
     /**
      * @notice Called when tokens are sold through IEO

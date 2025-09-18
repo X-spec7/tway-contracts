@@ -29,6 +29,9 @@ library FundraisingErrors {
     // Escrow related errors (mostly removed)
     error EscrowNotActive();
 
+    // Oracle circuit breaker errors
+    error CircuitBreakerTriggered(); // Added for oracle circuit breaker
+
     // New validation errors
     error InvalidDelayDays();
     error InvalidMinInvestment();

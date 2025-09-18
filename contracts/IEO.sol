@@ -40,8 +40,16 @@ contract IEO is Ownable, IIEO {
     uint256 public override totalTokensSold;
     
     // Price validation (adjustable by business admin)
-    uint256 private minTokenPrice;        // Minimum acceptable token price
-    uint256 private maxTokenPrice;        // Maximum acceptable token price
+    uint256 public minTokenPrice;        // Minimum acceptable token price
+    uint256 public maxTokenPrice;        // Maximum acceptable token price
+    
+    // Oracle circuit breaker system
+    uint256 public lastPriceUpdate;      // Timestamp of last price update
+    uint256 public priceStalenessThreshold; // Maximum age of price data (in seconds)
+    uint256 public maxPriceDeviation;    // Maximum price deviation percentage (in basis points)
+    uint256 public lastValidPrice;       // Last valid price for deviation check
+    bool public circuitBreakerEnabled;   // Whether circuit breaker is enabled
+    bool public circuitBreakerTriggered; // Whether circuit breaker is currently triggered
     
     // Withdrawal tracking (per-investment based)
     uint256 public totalDeposited;        // Total USDC received from all investments
@@ -82,15 +90,20 @@ contract IEO is Ownable, IIEO {
         _;
     }
 
+    modifier circuitBreakerNotTriggered() {
+        if (circuitBreakerEnabled && circuitBreakerTriggered) {
+            revert FundraisingErrors.CircuitBreakerTriggered();
+        }
+        _;
+    }
+
     constructor(
         address _tokenAddress,
         address _admin,
         address _businessAdmin,
         uint256 _delayDays,
         uint256 _minInvestment,
-        uint256 _maxInvestment,
-        uint256 _minTokenPrice,
-        uint256 _maxTokenPrice
+        uint256 _maxInvestment
     ) Ownable(msg.sender) {
         if (_tokenAddress == address(0)) {
             revert FundraisingErrors.ZeroAddress();
@@ -110,9 +123,6 @@ contract IEO is Ownable, IIEO {
         if (_maxInvestment <= _minInvestment) {
             revert FundraisingErrors.InvalidInvestmentRange();
         }
-        if (_minTokenPrice > 0 && _maxTokenPrice > 0 && _minTokenPrice >= _maxTokenPrice) {
-            revert FundraisingErrors.InvalidInvestmentRange();
-        }
         
         // Assign immutable variables
         tokenAddress = _tokenAddress;
@@ -126,9 +136,18 @@ contract IEO is Ownable, IIEO {
         
         // Initialize state variables
         rewardTrackingAddress = address(0);
-
-        minTokenPrice = _minTokenPrice;
-        maxTokenPrice = _maxTokenPrice;
+        
+        // Initialize price validation (disabled by default - no bounds set)
+        minTokenPrice = 0;
+        maxTokenPrice = 0;
+        
+        // Initialize oracle circuit breaker (disabled by default)
+        lastPriceUpdate = 0;
+        priceStalenessThreshold = 3600; // 1 hour default
+        maxPriceDeviation = 1000; // 10% default (1000 basis points)
+        lastValidPrice = 0;
+        circuitBreakerEnabled = false;
+        circuitBreakerTriggered = false;
         
         // Initialize reentrancy guard
         setRewardTrackingEnabled(false);
@@ -220,13 +239,51 @@ contract IEO is Ownable, IIEO {
     // Price validation management (business admin only)
     function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice) external onlyBusinessAdmin {
         if (_minTokenPrice > 0 && _maxTokenPrice > 0 && _minTokenPrice >= _maxTokenPrice) {
-            revert FundraisingErrors.InvalidInvestmentRange();
+            revert FundraisingErrors.InvalidInvestmentRange(); // Reuse existing error for price range
         }
         
         minTokenPrice = _minTokenPrice;
         maxTokenPrice = _maxTokenPrice;
         
-        emit PriceValidationUpdated(_minTokenPrice, _maxTokenPrice, true);
+        emit PriceValidationUpdated(_minTokenPrice, _maxTokenPrice, _minTokenPrice > 0 || _maxTokenPrice > 0);
+    }
+
+    // Oracle circuit breaker management (business admin only)
+    function setCircuitBreaker(
+        uint256 _priceStalenessThreshold,
+        uint256 _maxPriceDeviation,
+        bool _enabled
+    ) external onlyBusinessAdmin {
+        require(_priceStalenessThreshold > 0, "Invalid staleness threshold");
+        require(_maxPriceDeviation <= 10000, "Invalid deviation percentage"); // Max 100%
+        
+        priceStalenessThreshold = _priceStalenessThreshold;
+        maxPriceDeviation = _maxPriceDeviation;
+        circuitBreakerEnabled = _enabled;
+        
+        // Reset circuit breaker if enabling
+        if (_enabled) {
+            circuitBreakerTriggered = false;
+        }
+        
+        emit CircuitBreakerUpdated(_priceStalenessThreshold, _maxPriceDeviation, _enabled);
+    }
+
+    function resetCircuitBreaker() external onlyBusinessAdmin {
+        circuitBreakerTriggered = false;
+        emit CircuitBreakerReset();
+    }
+
+    function enableCircuitBreaker() external onlyBusinessAdmin {
+        circuitBreakerEnabled = true;
+        circuitBreakerTriggered = false;
+        emit CircuitBreakerEnabled(true);
+    }
+
+    function disableCircuitBreaker() external onlyBusinessAdmin {
+        circuitBreakerEnabled = false;
+        circuitBreakerTriggered = false;
+        emit CircuitBreakerEnabled(false);
     }
 
     // Start IEO
@@ -249,26 +306,32 @@ contract IEO is Ownable, IIEO {
     }
 
     // Invest in IEO (supports multiple separate investments)
-    function invest(uint256 usdcAmount) external override onlyIEOActive nonReentrant {
+    function invest(uint256 usdcAmount) external override onlyIEOActive nonReentrant circuitBreakerNotTriggered {
         if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
             revert FundraisingErrors.InvalidInvestmentAmount();
         }
 
         // Get token price from oracle
-        (uint256 tokenPrice, uint256 priceDecimals) = IPriceOracle(priceOracle).getPrice(tokenAddress);
-        if (tokenPrice <= 0) {
+        (uint256 tokenPrice, uint256 priceDecimals, uint256 priceTimestamp) = IPriceOracle(priceOracle).getPrice(tokenAddress);
+        if (tokenPrice == 0) {
             revert FundraisingErrors.InvalidPrice();
         }
 
-        if (minTokenPrice > 0 && tokenPrice < minTokenPrice) {
-            revert FundraisingErrors.InvalidPrice();
-        }
-        if (maxTokenPrice > 0 && tokenPrice > maxTokenPrice) {
-            revert FundraisingErrors.InvalidPrice();
+        // Apply oracle circuit breaker checks
+        _validateOraclePrice(tokenPrice, priceTimestamp);
+
+        // Validate price if bounds are set (price validation is always enabled when bounds exist)
+        if (minTokenPrice > 0 || maxTokenPrice > 0) {
+            if (minTokenPrice > 0 && tokenPrice < minTokenPrice) {
+                revert FundraisingErrors.InvalidPrice();
+            }
+            if (maxTokenPrice > 0 && tokenPrice > maxTokenPrice) {
+                revert FundraisingErrors.InvalidPrice();
+            }
         }
 
         // Calculate token amount (USDC has 6 decimals, token has 18 decimals)
-        uint256 tokenAmount = (usdcAmount * (10 ** priceDecimals)) / tokenPrice;
+        uint256 tokenAmount = (usdcAmount * 1e18 * (10 ** priceDecimals)) / tokenPrice;
 
         // Transfer USDC from investor
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
@@ -303,6 +366,39 @@ contract IEO is Ownable, IIEO {
         }
 
         emit InvestmentMade(msg.sender, usdcAmount, tokenAmount);
+    }
+
+    // Internal function to validate oracle price
+    function _validateOraclePrice(uint256 tokenPrice, uint256 priceTimestamp) internal {
+        if (!circuitBreakerEnabled) {
+            return;
+        }
+
+        uint256 currentTime = block.timestamp;
+
+        // Check if oracle's timestamp is too old
+        if (currentTime - priceTimestamp > priceStalenessThreshold) {
+            circuitBreakerTriggered = true;
+            emit CircuitBreakerTriggered("Price too stale");
+            revert FundraisingErrors.CircuitBreakerTriggered();
+        }
+
+        // Check price deviation
+        if (lastValidPrice > 0) {
+            uint256 priceChange = tokenPrice > lastValidPrice 
+                ? ((tokenPrice - lastValidPrice) * 10000) / lastValidPrice
+                : ((lastValidPrice - tokenPrice) * 10000) / lastValidPrice;
+
+            if (priceChange > maxPriceDeviation) {
+                circuitBreakerTriggered = true;
+                emit CircuitBreakerTriggered("Price deviation too high");
+                revert FundraisingErrors.CircuitBreakerTriggered();
+            }
+        }
+
+        // Update oracle state
+        lastPriceUpdate = currentTime;
+        lastValidPrice = tokenPrice;
     }
 
     // Claim tokens (after claim delay) - claims all unclaimed investments
@@ -568,7 +664,7 @@ contract IEO is Ownable, IIEO {
         return IERC20(USDC_ADDRESS).balanceOf(address(this));
     }
 
-    // TODO: consider gas-effective way with backend logic in mind.
+    // New view functions for withdrawal tracking
     function getWithdrawableAmount() public view returns (uint256) {
         uint256 withdrawable = 0;
         uint256 currentTime = block.timestamp;
@@ -643,6 +739,35 @@ contract IEO is Ownable, IIEO {
     function getMaxTokenPrice() external view returns (uint256) {
         return maxTokenPrice;
     }
+
+    function isPriceValidationEnabled() external view returns (bool) {
+        return minTokenPrice > 0 || maxTokenPrice > 0;
+    }
+
+    // Oracle circuit breaker view functions
+    function getLastPriceUpdate() external view returns (uint256) {
+        return lastPriceUpdate;
+    }
+
+    function getPriceStalenessThreshold() external view returns (uint256) {
+        return priceStalenessThreshold;
+    }
+
+    function getMaxPriceDeviation() external view returns (uint256) {
+        return maxPriceDeviation;
+    }
+
+    function getLastValidPrice() external view returns (uint256) {
+        return lastValidPrice;
+    }
+
+    function isCircuitBreakerEnabled() external view returns (bool) {
+        return circuitBreakerEnabled;
+    }
+
+    function isCircuitBreakerTriggered() external view returns (bool) {
+        return circuitBreakerTriggered;
+    }
 }
 
 // Interface for reward tracking
@@ -650,6 +775,10 @@ interface IRewardTracking {
     function onTokenSold(address user, uint256 amount) external;
 }
 
-// New events for price validation
-event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice);
+// New events for price validation and circuit breaker
+event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice, bool enabled);
+event CircuitBreakerUpdated(uint256 stalenessThreshold, uint256 maxDeviation, bool enabled);
+event CircuitBreakerTriggered(string reason);
+event CircuitBreakerReset();
+event CircuitBreakerEnabled(bool enabled);
 event USDCWithdrawn(address indexed businessAdmin, uint256 amount);

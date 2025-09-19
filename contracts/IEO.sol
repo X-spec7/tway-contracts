@@ -24,7 +24,6 @@ contract IEO is Ownable, IIEO {
     // Immutable variables set during deployment
     address public immutable override tokenAddress;
     address public immutable override admin;
-    address public immutable businessAdmin;
     uint256 public immutable override CLAIM_DELAY;
     uint256 public immutable override REFUND_PERIOD;
     uint256 public immutable override MIN_INVESTMENT;
@@ -34,6 +33,7 @@ contract IEO is Ownable, IIEO {
     // State variables
     address public override rewardTrackingAddress;
     address public override priceOracle;
+    address public businessAdmin; // Changed from immutable to allow updates
     
     uint256 public override ieoStartTime;
     uint256 public override ieoEndTime;
@@ -65,6 +65,13 @@ contract IEO is Ownable, IIEO {
 
     modifier onlyBusinessAdmin() {
         if (msg.sender != businessAdmin && msg.sender != owner()) {
+            revert FundraisingErrors.NotAdmin();
+        }
+        _;
+    }
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin && msg.sender != owner()) {
             revert FundraisingErrors.NotAdmin();
         }
         _;
@@ -134,7 +141,8 @@ contract IEO is Ownable, IIEO {
         // Assign immutable variables
         tokenAddress = _tokenAddress;
         admin = _admin;
-        businessAdmin = _businessAdmin;
+        businessAdmin = _businessAdmin; // Now a state variable
+        
         CLAIM_DELAY = _delayDays * 1 days;
         REFUND_PERIOD = _delayDays * 1 days; // Same as claim delay
         MIN_INVESTMENT = _minInvestment;
@@ -260,6 +268,18 @@ contract IEO is Ownable, IIEO {
         setRewardTrackingEnabled(true);
         emit RewardTrackingAddressUpdated(_rewardTrackingAddress);
         emit RewardTrackingEnabled(true);
+    }
+
+    // Setter for business admin address (admin only)
+    function setBusinessAdmin(address _businessAdmin) external onlyAdmin {
+        if (_businessAdmin == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        
+        address oldBusinessAdmin = businessAdmin;
+        businessAdmin = _businessAdmin;
+        
+        emit BusinessAdminUpdated(oldBusinessAdmin, _businessAdmin);
     }
 
     // Price validation management (business admin only)
@@ -824,3 +844,4 @@ event CircuitBreakerEnabled(bool enabled);
 event USDCWithdrawn(address indexed businessAdmin, uint256 amount);
 event IEOpaused();
 event IEOunpaused();
+event BusinessAdminUpdated(address indexed oldBusinessAdmin, address indexed newBusinessAdmin);

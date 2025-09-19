@@ -139,6 +139,13 @@ interface IIEO {
      */
     event IEOunpaused();
 
+    /**
+     * @notice Emitted when business admin is updated
+     * @param oldBusinessAdmin The address of the old business admin
+     * @param newBusinessAdmin The address of the new business admin
+     */
+    event BusinessAdminUpdated(address indexed oldBusinessAdmin, address indexed newBusinessAdmin);
+
     // ============ Constants ============
     
     /**
@@ -502,6 +509,13 @@ interface IIEO {
      * @param _admin The address of the new admin
      */
     function setAdmin(address _admin) external;
+    
+    /**
+     * @notice Sets the business admin address
+     * @dev Only callable by admin or owner
+     * @param _businessAdmin The address of the new business admin
+     */
+    function setBusinessAdmin(address _businessAdmin) external;
     
     // ============ Business Admin Functions ============
     

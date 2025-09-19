@@ -195,6 +195,9 @@ library FundraisingErrors {
     /// @notice Thrown when caller is not the IEO contract
     error NotIEOContract();
     
+    /// @notice Thrown when there are no rewards to claim
+    error NoRewardsToClaim();
+    
     // ============ Validation Errors ============
     
     /// @notice Thrown when delay days is invalid

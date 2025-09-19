@@ -11,6 +11,7 @@ contract IEO is Ownable, IIEO {
     // Storage slots for Yul assembly optimization
     bytes32 internal constant REWARD_TRACKING_ENABLED_SLOT = bytes32(keccak256("ieo.reward.tracking.enabled"));
     bytes32 internal constant IEO_ACTIVE_SLOT = bytes32(keccak256("ieo.active.state"));
+    bytes32 internal constant IEO_PAUSED_SLOT = bytes32(keccak256("ieo.paused.state"));
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("ieo.reentrancy.guard"));
     
     // Reentrancy guard constants
@@ -72,6 +73,13 @@ contract IEO is Ownable, IIEO {
     modifier onlyIEOActive() {
         if (!isIEOActive() || block.timestamp < ieoStartTime || block.timestamp > ieoEndTime) {
             revert FundraisingErrors.IEONotActive();
+        }
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (isIEOActive() && isPaused()) {
+            revert FundraisingErrors.IEOPaused();
         }
         _;
     }
@@ -151,6 +159,8 @@ contract IEO is Ownable, IIEO {
         setRewardTrackingEnabled(false);
         // Initialize IEO as inactive
         setIEOActive(false);
+        // Initialize as not paused
+        setPaused(false);
     }
 
     // Override functions to satisfy both Ownable and IIEO
@@ -197,6 +207,24 @@ contract IEO is Ownable, IIEO {
     function setIEOActive(bool active) internal {
         bytes32 slot = IEO_ACTIVE_SLOT;
         uint256 value = active ? 1 : 0;
+        assembly ("memory-safe") {
+            sstore(slot, value)
+        }
+    }
+
+    // Yul assembly functions for IEO paused state
+    function isPaused() public view returns (bool) {
+        bytes32 slot = IEO_PAUSED_SLOT;
+        uint256 status;
+        assembly ("memory-safe") {
+            status := sload(slot)
+        }
+        return status == 1;
+    }
+
+    function setPaused(bool paused) internal {
+        bytes32 slot = IEO_PAUSED_SLOT;
+        uint256 value = paused ? 1 : 0;
         assembly ("memory-safe") {
             sstore(slot, value)
         }
@@ -284,6 +312,23 @@ contract IEO is Ownable, IIEO {
         emit CircuitBreakerEnabled(false);
     }
 
+    // Pause/Unpause functions (business admin only)
+    function pauseIEO() external onlyBusinessAdmin {
+        require(isIEOActive(), "IEO not active");
+        require(!isPaused(), "IEO already paused");
+        
+        setPaused(true);
+        emit IEOpaused();
+    }
+
+    function unpauseIEO() external onlyBusinessAdmin {
+        require(isIEOActive(), "IEO not active");
+        require(isPaused(), "IEO not paused");
+        
+        setPaused(false);
+        emit IEOunpaused();
+    }
+
     // Start IEO
     function startIEO(uint256 duration) external override onlyBusinessAdmin {
         require(!isIEOActive(), "IEO already active");
@@ -291,6 +336,7 @@ contract IEO is Ownable, IIEO {
         ieoStartTime = block.timestamp;
         ieoEndTime = block.timestamp + duration;
         setIEOActive(true);
+        setPaused(false); // Ensure not paused when starting
         
         emit IEOStarted(ieoStartTime, ieoEndTime);
     }
@@ -300,11 +346,12 @@ contract IEO is Ownable, IIEO {
         require(isIEOActive(), "IEO not active");
         
         setIEOActive(false);
+        setPaused(false); // Ensure not paused when ending
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
     // Invest in IEO (supports multiple separate investments)
-    function invest(uint256 usdcAmount) external override onlyIEOActive nonReentrant circuitBreakerNotTriggered {
+    function invest(uint256 usdcAmount) external override onlyIEOActive whenNotPaused nonReentrant circuitBreakerNotTriggered {
         if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
             revert FundraisingErrors.InvalidInvestmentAmount();
         }
@@ -775,3 +822,5 @@ event CircuitBreakerTriggered(string reason);
 event CircuitBreakerReset();
 event CircuitBreakerEnabled(bool enabled);
 event USDCWithdrawn(address indexed businessAdmin, uint256 amount);
+event IEOpaused();
+event IEOunpaused();

@@ -129,6 +129,16 @@ interface IIEO {
      */
     event CircuitBreakerEnabled(bool enabled);
 
+    /**
+     * @notice Emitted when IEO is paused
+     */
+    event IEOpaused();
+
+    /**
+     * @notice Emitted when IEO is unpaused
+     */
+    event IEOunpaused();
+
     // ============ Constants ============
     
     /**
@@ -198,6 +208,12 @@ interface IIEO {
      * @return True if IEO is active, false otherwise
      */
     function isIEOActive() external view returns (bool);
+    
+    /**
+     * @notice Returns whether the IEO is paused
+     * @return True if IEO is paused, false otherwise
+     */
+    function isPaused() external view returns (bool);
     
     /**
      * @notice Returns the IEO start time
@@ -523,4 +539,16 @@ interface IIEO {
      * @dev Only callable by business admin
      */
     function disableCircuitBreaker() external;
+
+    /**
+     * @notice Pauses the IEO
+     * @dev Only callable by business admin, only when IEO is active
+     */
+    function pauseIEO() external;
+
+    /**
+     * @notice Unpauses the IEO
+     * @dev Only callable by business admin, only when IEO is active and paused
+     */
+    function unpauseIEO() external;
 }

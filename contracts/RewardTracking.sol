@@ -101,13 +101,14 @@ contract RewardTracking is Ownable, IRewardTracking {
     // Update pool when USDC is deposited
     function _updatePool(uint256 amount) internal {
         if (amount > 0) {
+            // Ensure totalTokenSold is not zero to prevent division by zero
+            require(poolInfo.totalTokenSold > 0, "No tokens sold yet");
+            
             poolInfo.totalUSDCDeposited += amount;
             
-            // Calculate new accumulated reward per token
-            uint256 newRewardPerToken = poolInfo.accumulatedRewardPerToken + 
-                (amount * PRECISION) / poolInfo.totalTokenSold;
+            uint256 rewardIncrease = (amount * PRECISION) / poolInfo.totalTokenSold;
+            poolInfo.accumulatedRewardPerToken += rewardIncrease;
             
-            poolInfo.accumulatedRewardPerToken = newRewardPerToken;
             poolInfo.lastRewardBlock = block.number;
             
             emit RewardDeposited(amount, poolInfo.accumulatedRewardPerToken);
@@ -122,7 +123,10 @@ contract RewardTracking is Ownable, IRewardTracking {
         // Update user's reward tracking
         UserRewardTracking storage userTracking = userRewardTrackings[user];
         userTracking.balance += amount;
-        userTracking.rewardDebt += amount * poolInfo.accumulatedRewardPerToken / PRECISION;
+        
+        // Calculate reward debt increase
+        uint256 debtIncrease = (amount * poolInfo.accumulatedRewardPerToken) / PRECISION;
+        userTracking.rewardDebt += debtIncrease;
         
         emit UserBalanceUpdated(user, userTracking.balance, userTracking.rewardDebt);
         emit TokensSoldUpdated(poolInfo.totalTokenSold);
@@ -135,8 +139,15 @@ contract RewardTracking is Ownable, IRewardTracking {
         // Update sender's reward tracking
         if (from != address(0)) {
             UserRewardTracking storage fromTracking = userRewardTrackings[from];
+            
+            require(fromTracking.balance >= amount, "Insufficient balance for transfer");
+            
             fromTracking.balance -= amount;
-            fromTracking.rewardDebt -= amount * poolInfo.accumulatedRewardPerToken / PRECISION;
+            
+            // Calculate debt reduction
+            uint256 debtReduction = (amount * poolInfo.accumulatedRewardPerToken) / PRECISION;
+            require(fromTracking.rewardDebt >= debtReduction, "Insufficient reward debt for reduction");
+            fromTracking.rewardDebt -= debtReduction;
             
             emit UserBalanceUpdated(from, fromTracking.balance, fromTracking.rewardDebt);
         }
@@ -145,7 +156,10 @@ contract RewardTracking is Ownable, IRewardTracking {
         if (to != address(0)) {
             UserRewardTracking storage toTracking = userRewardTrackings[to];
             toTracking.balance += amount;
-            toTracking.rewardDebt += amount * poolInfo.accumulatedRewardPerToken / PRECISION;
+            
+            // Calculate debt increase
+            uint256 debtIncrease = (amount * poolInfo.accumulatedRewardPerToken) / PRECISION;
+            toTracking.rewardDebt += debtIncrease;
             
             emit UserBalanceUpdated(to, toTracking.balance, toTracking.rewardDebt);
         }
@@ -156,14 +170,15 @@ contract RewardTracking is Ownable, IRewardTracking {
         UserRewardTracking storage userTracking = userRewardTrackings[msg.sender];
         
         // Calculate pending reward
-        uint256 pendingReward = (userTracking.balance * poolInfo.accumulatedRewardPerToken / PRECISION) - userTracking.rewardDebt;
+        uint256 totalReward = (userTracking.balance * poolInfo.accumulatedRewardPerToken) / PRECISION;
+        uint256 pendingReward = totalReward - userTracking.rewardDebt;
         
         if (pendingReward == 0) {
             revert FundraisingErrors.NoRewardsToClaim();
         }
         
         // Update user's reward debt
-        userTracking.rewardDebt = userTracking.balance * poolInfo.accumulatedRewardPerToken / PRECISION;
+        userTracking.rewardDebt = (userTracking.balance * poolInfo.accumulatedRewardPerToken) / PRECISION;
         
         // Transfer USDC to user
         IERC20(USDC_ADDRESS).transfer(msg.sender, pendingReward);
@@ -174,7 +189,8 @@ contract RewardTracking is Ownable, IRewardTracking {
     // View functions
     function getPendingReward(address user) external view override returns (uint256) {
         UserRewardTracking memory userTracking = userRewardTrackings[user];
-        return (userTracking.balance * poolInfo.accumulatedRewardPerToken / PRECISION) - userTracking.rewardDebt;
+        uint256 totalReward = (userTracking.balance * poolInfo.accumulatedRewardPerToken) / PRECISION;
+        return totalReward - userTracking.rewardDebt;
     }
 
     function getUserRewardTracking(address user) external view override returns (UserRewardTracking memory) {

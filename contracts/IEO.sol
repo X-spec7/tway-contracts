@@ -20,6 +20,7 @@ contract IEO is Ownable, IIEO {
     
     // Constants
     address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    uint256 public constant MAX_PRICE_DECIMALS = 18; // Maximum allowed price decimals
     
     // Immutable variables set during deployment
     address public immutable override tokenAddress;
@@ -370,6 +371,22 @@ contract IEO is Ownable, IIEO {
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
+    function calculateTokenAmount(uint256 usdcAmount, uint256 tokenPrice, uint256 priceDecimals) internal pure returns (uint256) {
+        // Validate priceDecimals range to prevent overflow
+        require(priceDecimals <= MAX_PRICE_DECIMALS, "Price decimals too high");
+        
+        // Calculate multiplier safely
+        uint256 multiplier = 10 ** priceDecimals;
+        
+        // Calculate numerator
+        uint256 numerator = usdcAmount * 1e18 * multiplier;
+        
+        // Validate no overflow occurred by checking the reverse calculation
+        require(numerator / usdcAmount / 1e18 == multiplier, "Overflow in token calculation");
+        
+        return numerator / tokenPrice;
+    }
+
     // Invest in IEO (supports multiple separate investments)
     function invest(uint256 usdcAmount) external override onlyIEOActive whenNotPaused nonReentrant circuitBreakerNotTriggered {
         if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
@@ -395,13 +412,11 @@ contract IEO is Ownable, IIEO {
             }
         }
 
-        // Calculate token amount (USDC has 6 decimals, token has 18 decimals)
-        uint256 tokenAmount = (usdcAmount * 1e18 * (10 ** priceDecimals)) / tokenPrice;
+        // Calculate token amount 
+        uint256 tokenAmount = calculateTokenAmount(usdcAmount, tokenPrice, priceDecimals);
 
         // Transfer USDC from investor
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
-
-        // Update total deposited
         totalDeposited += usdcAmount;
 
         // Create new separate investment
@@ -422,6 +437,7 @@ contract IEO is Ownable, IIEO {
             investors.push(msg.sender);
         }
 
+        
         totalRaised += usdcAmount;
         totalTokensSold += tokenAmount;
 

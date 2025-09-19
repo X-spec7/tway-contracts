@@ -44,7 +44,6 @@ contract IEO is Ownable, IIEO {
     uint256 public maxTokenPrice;        // Maximum acceptable token price
     
     // Oracle circuit breaker system
-    uint256 public lastPriceUpdate;      // Timestamp of last price update
     uint256 public priceStalenessThreshold; // Maximum age of price data (in seconds)
     uint256 public maxPriceDeviation;    // Maximum price deviation percentage (in basis points)
     uint256 public lastValidPrice;       // Last valid price for deviation check
@@ -142,7 +141,6 @@ contract IEO is Ownable, IIEO {
         maxTokenPrice = 0;
         
         // Initialize oracle circuit breaker (disabled by default)
-        lastPriceUpdate = 0;
         priceStalenessThreshold = 3600; // 1 hour default
         maxPriceDeviation = 1000; // 10% default (1000 basis points)
         lastValidPrice = 0;
@@ -311,7 +309,7 @@ contract IEO is Ownable, IIEO {
             revert FundraisingErrors.InvalidInvestmentAmount();
         }
 
-        // Get token price from oracle
+        // Get token price from oracle (now includes timestamp)
         (uint256 tokenPrice, uint256 priceDecimals, uint256 priceTimestamp) = IPriceOracle(priceOracle).getPrice(tokenAddress);
         if (tokenPrice == 0) {
             revert FundraisingErrors.InvalidPrice();
@@ -371,19 +369,19 @@ contract IEO is Ownable, IIEO {
     // Internal function to validate oracle price
     function _validateOraclePrice(uint256 tokenPrice, uint256 priceTimestamp) internal {
         if (!circuitBreakerEnabled) {
-            return;
+            return; // Circuit breaker disabled, skip validation
         }
 
         uint256 currentTime = block.timestamp;
 
-        // Check if oracle's timestamp is too old
+        // Check price staleness using oracle timestamp
         if (currentTime - priceTimestamp > priceStalenessThreshold) {
             circuitBreakerTriggered = true;
             emit CircuitBreakerTriggered("Price too stale");
             revert FundraisingErrors.CircuitBreakerTriggered();
         }
 
-        // Check price deviation
+        // Check price deviation (only if we have a previous price)
         if (lastValidPrice > 0) {
             uint256 priceChange = tokenPrice > lastValidPrice 
                 ? ((tokenPrice - lastValidPrice) * 10000) / lastValidPrice
@@ -397,7 +395,6 @@ contract IEO is Ownable, IIEO {
         }
 
         // Update oracle state
-        lastPriceUpdate = currentTime;
         lastValidPrice = tokenPrice;
     }
 
@@ -745,10 +742,6 @@ contract IEO is Ownable, IIEO {
     }
 
     // Oracle circuit breaker view functions
-    function getLastPriceUpdate() external view returns (uint256) {
-        return lastPriceUpdate;
-    }
-
     function getPriceStalenessThreshold() external view returns (uint256) {
         return priceStalenessThreshold;
     }

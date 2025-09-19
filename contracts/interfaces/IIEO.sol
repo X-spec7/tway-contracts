@@ -104,6 +104,31 @@ interface IIEO {
      */
     event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice, bool enabled);
 
+    /**
+     * @notice Emitted when circuit breaker is updated
+     * @param stalenessThreshold The staleness threshold in seconds
+     * @param maxDeviation The maximum price deviation percentage
+     * @param enabled Whether circuit breaker is enabled
+     */
+    event CircuitBreakerUpdated(uint256 stalenessThreshold, uint256 maxDeviation, bool enabled);
+
+    /**
+     * @notice Emitted when circuit breaker is triggered
+     * @param reason The reason for triggering
+     */
+    event CircuitBreakerTriggered(string reason);
+
+    /**
+     * @notice Emitted when circuit breaker is reset
+     */
+    event CircuitBreakerReset();
+
+    /**
+     * @notice Emitted when circuit breaker is enabled/disabled
+     * @param enabled True if enabled, false if disabled
+     */
+    event CircuitBreakerEnabled(bool enabled);
+
     // ============ Constants ============
     
     /**
@@ -320,6 +345,42 @@ interface IIEO {
      * @return The maximum token price
      */
     function getMaxTokenPrice() external view returns (uint256);
+    
+    /**
+     * @notice Returns whether price validation is enabled
+     * @return True if price validation is enabled, false otherwise
+     */
+    function isPriceValidationEnabled() external view returns (bool);
+
+    /**
+     * @notice Returns the price staleness threshold
+     * @return The staleness threshold in seconds
+     */
+    function getPriceStalenessThreshold() external view returns (uint256);
+
+    /**
+     * @notice Returns the maximum price deviation percentage
+     * @return The maximum price deviation in basis points
+     */
+    function getMaxPriceDeviation() external view returns (uint256);
+
+    /**
+     * @notice Returns the last valid price
+     * @return The last valid price
+     */
+    function getLastValidPrice() external view returns (uint256);
+
+    /**
+     * @notice Returns whether circuit breaker is enabled
+     * @return True if circuit breaker is enabled, false otherwise
+     */
+    function isCircuitBreakerEnabled() external view returns (bool);
+
+    /**
+     * @notice Returns whether circuit breaker is triggered
+     * @return True if circuit breaker is triggered, false otherwise
+     */
+    function isCircuitBreakerTriggered() external view returns (bool);
 
     // ============ State-Changing Functions ============
     
@@ -435,4 +496,31 @@ interface IIEO {
      * @param _maxTokenPrice The maximum acceptable token price
      */
     function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice) external;
+
+    /**
+     * @notice Sets the circuit breaker parameters
+     * @dev Only callable by business admin
+     * @param _priceStalenessThreshold The staleness threshold in seconds
+     * @param _maxPriceDeviation The maximum price deviation percentage
+     * @param _enabled Whether circuit breaker is enabled
+     */
+    function setCircuitBreaker(uint256 _priceStalenessThreshold, uint256 _maxPriceDeviation, bool _enabled) external;
+
+    /**
+     * @notice Resets the circuit breaker
+     * @dev Only callable by business admin
+     */
+    function resetCircuitBreaker() external;
+
+    /**
+     * @notice Enables the circuit breaker
+     * @dev Only callable by business admin
+     */
+    function enableCircuitBreaker() external;
+
+    /**
+     * @notice Disables the circuit breaker
+     * @dev Only callable by business admin
+     */
+    function disableCircuitBreaker() external;
 }

@@ -34,7 +34,7 @@ interface IIEO {
      * @param startTime The timestamp when IEO started
      * @param endTime The timestamp when IEO ends
      */
-    event IEOStarted(uint256 startTime, uint256 endTime);
+    event IEOStarted(uint256 startTime);
     
     /**
      * @notice Emitted when IEO ends
@@ -232,7 +232,7 @@ interface IIEO {
      * @notice Returns the IEO end time
      * @return The IEO end timestamp
      */
-    function ieoEndTime() external view returns (uint64);
+
     
     /**
      * @notice Returns the total amount raised
@@ -453,7 +453,7 @@ interface IIEO {
      * @dev Only callable by the owner
      * @param duration The duration of the IEO in seconds
      */
-    function startIEO(uint256 duration) external;
+    function startIEO() external;
     
     /**
      * @notice Ends the IEO

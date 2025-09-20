@@ -32,7 +32,6 @@ contract IEO is Ownable, IIEO {
     address public businessAdmin;
     
     uint64 public override ieoStartTime;
-    uint64 public override ieoEndTime;
     
     uint128 public override totalRaised;
     uint128 public override totalTokensSold;
@@ -69,7 +68,7 @@ contract IEO is Ownable, IIEO {
     }
 
     modifier onlyIEOActive() {
-        if (!isIEOActive() || block.timestamp < ieoStartTime || block.timestamp > ieoEndTime) {
+        if (!isIEOActive() || block.timestamp < ieoStartTime) {
             revert FundraisingErrors.IEONotActive();
         }
         _;
@@ -365,18 +364,17 @@ contract IEO is Ownable, IIEO {
     }
 
     // Start IEO
-    function startIEO(uint256 duration)
+    function startIEO()
         external
         onlyBusinessAdmin
     {
         require(!isIEOActive(), "IEO already active");
         
         ieoStartTime = uint64(block.timestamp);
-        ieoEndTime = uint64(block.timestamp + duration);
         setIEOActive(true);
         setPaused(false); // Ensure not paused when starting
         
-        emit IEOStarted(ieoStartTime, ieoEndTime);
+        emit IEOStarted(ieoStartTime);
     }
 
     // End IEO
@@ -820,7 +818,7 @@ contract IEO is Ownable, IIEO {
         view
         returns (bool)
     {
-        return isIEOActive() && block.timestamp >= ieoStartTime && block.timestamp <= ieoEndTime;
+        return isIEOActive() && block.timestamp >= ieoStartTime;
     }
 
     function getUSDCBalance()

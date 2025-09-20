@@ -8,61 +8,48 @@ import "./libraries/errors/FundraisingErrors.sol";
 import "./interfaces/IIEO.sol";
 
 contract IEO is Ownable, IIEO {
-    // Storage slots for Yul assembly optimization
     bytes32 internal constant REWARD_TRACKING_ENABLED_SLOT = bytes32(keccak256("ieo.reward.tracking.enabled"));
     bytes32 internal constant IEO_ACTIVE_SLOT = bytes32(keccak256("ieo.active.state"));
     bytes32 internal constant IEO_PAUSED_SLOT = bytes32(keccak256("ieo.paused.state"));
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("ieo.reentrancy.guard"));
     
-    // Reentrancy guard constants
     uint8 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
     uint8 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
-    // Constants
     address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    uint8 public constant MAX_PRICE_DECIMALS = 18; // Maximum allowed price decimals
+    uint8 public constant MAX_PRICE_DECIMALS = 18;
     
-    // Immutable variables set during deployment
     address public immutable override tokenAddress;
     address public immutable override admin;
     uint32 public immutable override CLAIM_DELAY;
     uint32 public immutable override REFUND_PERIOD;
     uint128 public immutable override MIN_INVESTMENT;
     uint128 public immutable override MAX_INVESTMENT;
-    uint32 public immutable WITHDRAWAL_DELAY; // Same as claim/refund delay
+    uint32 public immutable WITHDRAWAL_DELAY;
     
-    // State variables - optimally packed for gas efficiency
-    
-    // Addresses (20 bytes each) - group together
     address public override rewardTrackingAddress;
     address public override priceOracle;
-    address public businessAdmin; // Changed from immutable to allow updates
+    address public businessAdmin;
     
-    // Time variables (8 bytes each) - can pack 2 per slot
     uint64 public override ieoStartTime;
     uint64 public override ieoEndTime;
     
-    // Amount variables (16 bytes each) - can pack 2 per slot
     uint128 public override totalRaised;
     uint128 public override totalTokensSold;
     uint128 public totalDeposited;        // Total USDC received from all investments
     uint128 public totalWithdrawn;        // Total USDC withdrawn by business admin
     
-    // Price variables (16 bytes each) - can pack 2 per slot
     uint128 public minTokenPrice;        // Minimum acceptable token price
     uint128 public maxTokenPrice;        // Maximum acceptable token price
     uint128 public lastValidPrice;       // Last valid price for deviation check
     
-    // Configuration variables (4 bytes each) - can pack 8 per slot
     uint32 public priceStalenessThreshold; // Maximum age of price data (in seconds)
     uint32 public investmentCounter;      // Investment counter for unique IDs
     
-    // Small variables (2 bytes and 1 byte) - can pack many per slot
     uint16 public maxPriceDeviation;    // Maximum price deviation percentage (in basis points)
     bool public circuitBreakerEnabled;   // Whether circuit breaker is enabled
     bool public circuitBreakerTriggered; // Whether circuit breaker is currently triggered
     
-    // Mappings and arrays (separate storage)
     mapping(address => Investment[]) public userInvestments;  // Array of investments per user
     mapping(address => bool) public isInvestor;               // Track if user has ever invested
     address[] public investors;                               // List of all investors
@@ -142,18 +129,16 @@ contract IEO is Ownable, IIEO {
             revert FundraisingErrors.InvalidInvestmentRange();
         }
         
-        // Assign immutable variables
         tokenAddress = _tokenAddress;
         admin = _admin;
-        businessAdmin = _businessAdmin; // Now a state variable
+        businessAdmin = _businessAdmin;
         
         CLAIM_DELAY = uint32(_delayDays * 1 days);
-        REFUND_PERIOD = uint32(_delayDays * 1 days); // Same as claim delay
+        REFUND_PERIOD = uint32(_delayDays * 1 days);
         MIN_INVESTMENT = uint128(_minInvestment);
         MAX_INVESTMENT = uint128(_maxInvestment);
-        WITHDRAWAL_DELAY = uint32(_delayDays * 1 days); // Same as claim/refund delay
+        WITHDRAWAL_DELAY = uint32(_delayDays * 1 days);
         
-        // Initialize state variables
         rewardTrackingAddress = address(0);
         
         // Initialize price validation (disabled by default - no bounds set)
@@ -167,15 +152,11 @@ contract IEO is Ownable, IIEO {
         circuitBreakerEnabled = false;
         circuitBreakerTriggered = false;
         
-        // Initialize reentrancy guard
         setRewardTrackingEnabled(false);
-        // Initialize IEO as inactive
         setIEOActive(false);
-        // Initialize as not paused
         setPaused(false);
     }
 
-    // Override functions to satisfy both Ownable and IIEO
     function owner()
         override(Ownable, IIEO)
         public

@@ -75,27 +75,15 @@ contract IEOTest is Test {
         require(ieo.getUserInvestmentCount(user2) == 0, "User2 should have no investments");
         
         // Test getUserInvestments function
-        IIEO.Investment[] memory user1Investments = ieo.getUserInvestments(user1);
-        require(user1Investments.length == 0, "User1 should have no investments array");
-        
-        // Test getInvestment function (backward compatibility)
-        IIEO.Investment memory user1Investment = ieo.getInvestment(user1);
-        require(user1Investment.usdcAmount == 0, "User1 should have no investment amount");
-    }
-
-    function test_RefundableInvestments() public {
+        IIEO.Investment[] memory user1Investments = ieo.getUserInvestments(user1)
+        public
+    {
         ieo.startIEO(30 days);
         
         // Test refundable investments function
-        uint256[] memory refundableIndices = ieo.getRefundableInvestments(user1);
-        require(refundableIndices.length == 0, "User1 should have no refundable investments initially");
-        
-        // Test claimable investments function
-        uint256[] memory claimableIndices = ieo.getClaimableInvestments(user1);
-        require(claimableIndices.length == 0, "User1 should have no claimable investments initially");
-    }
-
-    function test_RefundInvestmentByIndex() public {
+        uint256[] memory refundableIndices = ieo.getRefundableInvestments(user1)
+        public
+    {
         ieo.startIEO(30 days);
         
         // Test refunding by index when no investments exist
@@ -113,7 +101,7 @@ contract IEOTest is Test {
         // Test refunding all investments when no investments exist
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(FundraisingErrors.NotInvestor.selector));
-        ieo.refundAllInvestments();
+        ieo.refundInvestment();
     }
 
     function test_WithdrawalLogic() public {

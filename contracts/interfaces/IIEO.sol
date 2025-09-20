@@ -20,11 +20,11 @@ interface IIEO {
      * @param refunded Whether the investment has been refunded
      */
     struct Investment {
-        uint256 usdcAmount;
-        uint256 tokenAmount;
-        uint256 investmentTime;
-        bool claimed;
-        bool refunded;
+        uint128 usdcAmount;    // Optimized: USDC has 6 decimals, 2^128-1 is more than enough
+        uint128 tokenAmount;   // Optimized: tokens won't exceed 2^128-1
+        uint64 investmentTime; // Optimized: timestamps won't exceed 2^64-1
+        bool claimed;          // Already optimal
+        bool refunded;         // Already optimal
     }
 
     // ============ Events ============
@@ -32,9 +32,8 @@ interface IIEO {
     /**
      * @notice Emitted when IEO starts
      * @param startTime The timestamp when IEO started
-     * @param endTime The timestamp when IEO ends
      */
-    event IEOStarted(uint256 startTime, uint256 endTime);
+    event IEOStarted(uint256 startTime);
     
     /**
      * @notice Emitted when IEO ends
@@ -95,6 +94,56 @@ interface IIEO {
      * @param amount The amount of USDC withdrawn
      */
     event USDCWithdrawn(address indexed businessAdmin, uint256 amount);
+    
+    /**
+     * @notice Emitted when price validation is updated
+     * @param minPrice The minimum acceptable token price
+     * @param maxPrice The maximum acceptable token price
+     * @param enabled Whether price validation is enabled
+     */
+    event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice, bool enabled);
+
+    /**
+     * @notice Emitted when circuit breaker is updated
+     * @param stalenessThreshold The staleness threshold in seconds
+     * @param maxDeviation The maximum price deviation percentage
+     * @param enabled Whether circuit breaker is enabled
+     */
+    event CircuitBreakerUpdated(uint256 stalenessThreshold, uint256 maxDeviation, bool enabled);
+
+    /**
+     * @notice Emitted when circuit breaker is triggered
+     * @param reason The reason for triggering
+     */
+    event CircuitBreakerTriggered(string reason);
+
+    /**
+     * @notice Emitted when circuit breaker is reset
+     */
+    event CircuitBreakerReset();
+
+    /**
+     * @notice Emitted when circuit breaker is enabled/disabled
+     * @param enabled True if enabled, false if disabled
+     */
+    event CircuitBreakerEnabled(bool enabled);
+
+    /**
+     * @notice Emitted when IEO is paused
+     */
+    event IEOpaused();
+
+    /**
+     * @notice Emitted when IEO is unpaused
+     */
+    event IEOunpaused();
+
+    /**
+     * @notice Emitted when business admin is updated
+     * @param oldBusinessAdmin The address of the old business admin
+     * @param newBusinessAdmin The address of the new business admin
+     */
+    event BusinessAdminUpdated(address indexed oldBusinessAdmin, address indexed newBusinessAdmin);
 
     // ============ Constants ============
     
@@ -108,25 +157,25 @@ interface IIEO {
      * @notice Returns the claim delay period
      * @return The claim delay in seconds
      */
-    function CLAIM_DELAY() external view returns (uint256);
+    function CLAIM_DELAY() external view returns (uint32);
     
     /**
      * @notice Returns the refund period
      * @return The refund period in seconds
      */
-    function REFUND_PERIOD() external view returns (uint256);
+    function REFUND_PERIOD() external view returns (uint32);
     
     /**
      * @notice Returns the minimum investment amount
      * @return The minimum investment amount in USDC
      */
-    function MIN_INVESTMENT() external view returns (uint256);
+    function MIN_INVESTMENT() external view returns (uint128);
     
     /**
      * @notice Returns the maximum investment amount
      * @return The maximum investment amount in USDC
      */
-    function MAX_INVESTMENT() external view returns (uint256);
+    function MAX_INVESTMENT() external view returns (uint128);
 
     // ============ View Functions ============
     
@@ -167,28 +216,34 @@ interface IIEO {
     function isIEOActive() external view returns (bool);
     
     /**
+     * @notice Returns whether the IEO is paused
+     * @return True if IEO is paused, false otherwise
+     */
+    function isPaused() external view returns (bool);
+    
+    /**
      * @notice Returns the IEO start time
      * @return The IEO start timestamp
      */
-    function ieoStartTime() external view returns (uint256);
+    function ieoStartTime() external view returns (uint64);
     
     /**
      * @notice Returns the IEO end time
      * @return The IEO end timestamp
      */
-    function ieoEndTime() external view returns (uint256);
+
     
     /**
      * @notice Returns the total amount raised
      * @return The total USDC raised
      */
-    function totalRaised() external view returns (uint256);
+    function totalRaised() external view returns (uint128);
     
     /**
      * @notice Returns the total tokens sold
      * @return The total tokens sold
      */
-    function totalTokensSold() external view returns (uint256);
+    function totalTokensSold() external view returns (uint128);
     
     /**
      * @notice Returns whether reward tracking is enabled
@@ -300,6 +355,54 @@ interface IIEO {
      * @return The amount of USDC that can be withdrawn for this investor
      */
     function getInvestorWithdrawableAmount(address investor) external view returns (uint256);
+    
+    /**
+     * @notice Returns the minimum acceptable token price
+     * @return The minimum token price
+     */
+    function getMinTokenPrice() external view returns (uint128);
+    
+    /**
+     * @notice Returns the maximum acceptable token price
+     * @return The maximum token price
+     */
+    function getMaxTokenPrice() external view returns (uint128);
+    
+    /**
+     * @notice Returns whether price validation is enabled
+     * @return True if price validation is enabled, false otherwise
+     */
+    function isPriceValidationEnabled() external view returns (bool);
+
+    /**
+     * @notice Returns the price staleness threshold
+     * @return The staleness threshold in seconds
+     */
+    function getPriceStalenessThreshold() external view returns (uint32);
+
+    /**
+     * @notice Returns the maximum price deviation percentage
+     * @return The maximum price deviation in basis points
+     */
+    function getMaxPriceDeviation() external view returns (uint16);
+
+    /**
+     * @notice Returns the last valid price
+     * @return The last valid price
+     */
+    function getLastValidPrice() external view returns (uint128);
+
+    /**
+     * @notice Returns whether circuit breaker is enabled
+     * @return True if circuit breaker is enabled, false otherwise
+     */
+    function isCircuitBreakerEnabled() external view returns (bool);
+
+    /**
+     * @notice Returns whether circuit breaker is triggered
+     * @return True if circuit breaker is triggered, false otherwise
+     */
+    function isCircuitBreakerTriggered() external view returns (bool);
 
     // ============ State-Changing Functions ============
     
@@ -327,14 +430,14 @@ interface IIEO {
      * @notice Refunds all refundable investments
      * @dev Only callable by investors within refund period
      */
-    function refundAllInvestments() external;
+    function refundInvestment() external;
     
     /**
      * @notice Withdraws USDC by business admin
      * @dev Only callable by business admin after per-investment delay
      * @param amount The amount of USDC to withdraw
      */
-    function withdrawUSDC(uint256 amount) external;
+    function withdrawUSDC(uint128 amount) external;
     
     /**
      * @notice Withdraws all available USDC by business admin
@@ -347,21 +450,14 @@ interface IIEO {
     /**
      * @notice Starts the IEO
      * @dev Only callable by the owner
-     * @param duration The duration of the IEO in seconds
      */
-    function startIEO(uint256 duration) external;
+    function startIEO() external;
     
     /**
      * @notice Ends the IEO
      * @dev Only callable by the owner
      */
     function endIEO() external;
-    
-    /**
-     * @notice Releases USDC to reward tracking contract after 30 days
-     * @dev Only callable by the owner
-     */
-    function releaseUSDCToRewardTracking() external;
     
     /**
      * @notice Emergency withdraws USDC from the contract
@@ -400,9 +496,58 @@ interface IIEO {
     function setPriceOracle(address _priceOracle) external;
     
     /**
-     * @notice Sets the admin address
-     * @dev Only callable by the owner
-     * @param _admin The address of the new admin
+     * @notice Sets the business admin address
+     * @dev Only callable by admin or owner
+     * @param _businessAdmin The address of the new business admin
      */
-    function setAdmin(address _admin) external;
+    function setBusinessAdmin(address _businessAdmin) external;
+    
+    // ============ Business Admin Functions ============
+    
+    /**
+     * @notice Sets the price validation bounds
+     * @dev Only callable by business admin
+     * @param _minTokenPrice The minimum acceptable token price
+     * @param _maxTokenPrice The maximum acceptable token price
+     */
+    function setPriceValidation(uint128 _minTokenPrice, uint128 _maxTokenPrice) external;
+
+    /**
+     * @notice Sets the circuit breaker parameters
+     * @dev Only callable by business admin
+     * @param _priceStalenessThreshold The staleness threshold in seconds
+     * @param _maxPriceDeviation The maximum price deviation percentage
+     * @param _enabled Whether circuit breaker is enabled
+     */
+    function setCircuitBreaker(uint32 _priceStalenessThreshold, uint16 _maxPriceDeviation, bool _enabled) external;
+
+    /**
+     * @notice Resets the circuit breaker
+     * @dev Only callable by business admin
+     */
+    function resetCircuitBreaker() external;
+
+    /**
+     * @notice Enables the circuit breaker
+     * @dev Only callable by business admin
+     */
+    function enableCircuitBreaker() external;
+
+    /**
+     * @notice Disables the circuit breaker
+     * @dev Only callable by business admin
+     */
+    function disableCircuitBreaker() external;
+
+    /**
+     * @notice Pauses the IEO
+     * @dev Only callable by business admin, only when IEO is active
+     */
+    function pauseIEO() external;
+
+    /**
+     * @notice Unpauses the IEO
+     * @dev Only callable by business admin, only when IEO is active and paused
+     */
+    function unpauseIEO() external;
 }

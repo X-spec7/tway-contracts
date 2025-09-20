@@ -8,48 +8,50 @@ import "./libraries/errors/FundraisingErrors.sol";
 import "./interfaces/IIEO.sol";
 
 contract IEO is Ownable, IIEO {
-    // Storage slots for Yul assembly optimization
     bytes32 internal constant REWARD_TRACKING_ENABLED_SLOT = bytes32(keccak256("ieo.reward.tracking.enabled"));
     bytes32 internal constant IEO_ACTIVE_SLOT = bytes32(keccak256("ieo.active.state"));
+    bytes32 internal constant IEO_PAUSED_SLOT = bytes32(keccak256("ieo.paused.state"));
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("ieo.reentrancy.guard"));
     
-    // Reentrancy guard constants
-    uint256 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
-    uint256 internal constant REENTRANCY_GUARD_ENTERED = 2;
+    uint8 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
+    uint8 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
-    // Constants
     address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    uint8 public constant MAX_PRICE_DECIMALS = 18;
     
-    // Immutable variables set during deployment
     address public immutable override tokenAddress;
     address public immutable override admin;
-    address public immutable businessAdmin;
-    uint256 public immutable override CLAIM_DELAY;
-    uint256 public immutable override REFUND_PERIOD;
-    uint256 public immutable override MIN_INVESTMENT;
-    uint256 public immutable override MAX_INVESTMENT;
-    uint256 public immutable WITHDRAWAL_DELAY; // Same as claim/refund delay
+    uint32 public immutable override CLAIM_DELAY;
+    uint32 public immutable override REFUND_PERIOD;
+    uint128 public immutable override MIN_INVESTMENT;
+    uint128 public immutable override MAX_INVESTMENT;
+    uint32 public immutable WITHDRAWAL_DELAY;
     
-    // State variables
     address public override rewardTrackingAddress;
     address public override priceOracle;
+    address public businessAdmin;
     
-    uint256 public override ieoStartTime;
-    uint256 public override ieoEndTime;
-    uint256 public override totalRaised;
-    uint256 public override totalTokensSold;
+    uint64 public override ieoStartTime;
     
-    // Withdrawal tracking (per-investment based)
-    uint256 public totalDeposited;        // Total USDC received from all investments
-    uint256 public totalWithdrawn;        // Total USDC withdrawn by business admin
+    uint128 public override totalRaised;
+    uint128 public override totalTokensSold;
+    uint128 public totalDeposited;        // Total USDC received from all investments
+    uint128 public totalWithdrawn;        // Total USDC withdrawn by business admin
     
-    // Separate investment tracking
+    uint128 public minTokenPrice;        // Minimum acceptable token price
+    uint128 public maxTokenPrice;        // Maximum acceptable token price
+    uint128 public lastValidPrice;       // Last valid price for deviation check
+    
+    uint32 public priceStalenessThreshold; // Maximum age of price data (in seconds)
+    uint32 public investmentCounter;      // Investment counter for unique IDs
+    
+    uint16 public maxPriceDeviation;    // Maximum price deviation percentage (in basis points)
+    bool public circuitBreakerEnabled;   // Whether circuit breaker is enabled
+    bool public circuitBreakerTriggered; // Whether circuit breaker is currently triggered
+    
     mapping(address => Investment[]) public userInvestments;  // Array of investments per user
     mapping(address => bool) public isInvestor;               // Track if user has ever invested
     address[] public investors;                               // List of all investors
-    
-    // Investment counter for unique IDs
-    uint256 public investmentCounter;
 
     modifier onlyBusinessAdmin() {
         if (msg.sender != businessAdmin && msg.sender != owner()) {
@@ -58,9 +60,23 @@ contract IEO is Ownable, IIEO {
         _;
     }
 
+    modifier onlyAdmin() {
+        if (msg.sender != admin && msg.sender != owner()) {
+            revert FundraisingErrors.NotAdmin();
+        }
+        _;
+    }
+
     modifier onlyIEOActive() {
-        if (!isIEOActive() || block.timestamp < ieoStartTime || block.timestamp > ieoEndTime) {
+        if (!isIEOActive() || block.timestamp < ieoStartTime) {
             revert FundraisingErrors.IEONotActive();
+        }
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (isIEOActive() && isPaused()) {
+            revert FundraisingErrors.IEOPaused();
         }
         _;
     }
@@ -74,6 +90,13 @@ contract IEO is Ownable, IIEO {
     modifier rewardTrackingEnabled() {
         if (!isRewardTrackingEnabled()) {
             revert FundraisingErrors.RewardTrackingNotEnabled();
+        }
+        _;
+    }
+
+    modifier circuitBreakerNotTriggered() {
+        if (circuitBreakerEnabled && circuitBreakerTriggered) {
+            revert FundraisingErrors.CircuitBreakerTriggered();
         }
         _;
     }
@@ -105,40 +128,63 @@ contract IEO is Ownable, IIEO {
             revert FundraisingErrors.InvalidInvestmentRange();
         }
         
-        // Assign immutable variables
         tokenAddress = _tokenAddress;
         admin = _admin;
         businessAdmin = _businessAdmin;
-        CLAIM_DELAY = _delayDays * 1 days;
-        REFUND_PERIOD = _delayDays * 1 days; // Same as claim delay
-        MIN_INVESTMENT = _minInvestment;
-        MAX_INVESTMENT = _maxInvestment;
-        WITHDRAWAL_DELAY = _delayDays * 1 days; // Same as claim/refund delay
         
-        // Initialize state variables
+        CLAIM_DELAY = uint32(_delayDays * 1 days);
+        REFUND_PERIOD = uint32(_delayDays * 1 days);
+        MIN_INVESTMENT = uint128(_minInvestment);
+        MAX_INVESTMENT = uint128(_maxInvestment);
+        WITHDRAWAL_DELAY = uint32(_delayDays * 1 days);
+        
         rewardTrackingAddress = address(0);
         
-        // Initialize reentrancy guard
+        // Initialize price validation (disabled by default - no bounds set)
+        minTokenPrice = 0;
+        maxTokenPrice = 0;
+        
+        // Initialize oracle circuit breaker (disabled by default)
+        priceStalenessThreshold = 3600; // 1 hour default
+        maxPriceDeviation = 1000; // 10% default (1000 basis points)
+        lastValidPrice = 0;
+        circuitBreakerEnabled = false;
+        circuitBreakerTriggered = false;
+        
         setRewardTrackingEnabled(false);
-        // Initialize IEO as inactive
         setIEOActive(false);
+        setPaused(false);
     }
 
-    // Override functions to satisfy both Ownable and IIEO
-    function owner() public view override(Ownable, IIEO) returns (address) {
+    function owner()
+        override(Ownable, IIEO)
+        public
+        view
+        returns (address)
+    {
         return super.owner();
     }
 
-    function transferOwnership(address newOwner) public override(Ownable, IIEO) {
+    function transferOwnership(address newOwner)
+        override(Ownable, IIEO)
+        public
+    {
         super.transferOwnership(newOwner);
     }
 
-    function renounceOwnership() public override(Ownable, IIEO) {
+    function renounceOwnership()
+        override(Ownable, IIEO)
+        public
+    {
         super.renounceOwnership();
     }
 
     // Yul assembly functions for reward tracking enabled state
-    function isRewardTrackingEnabled() public view override returns (bool) {
+    function isRewardTrackingEnabled()
+        public
+        view
+        returns (bool)
+    {
         bytes32 slot = REWARD_TRACKING_ENABLED_SLOT;
         uint256 status;
         assembly ("memory-safe") {
@@ -173,6 +219,24 @@ contract IEO is Ownable, IIEO {
         }
     }
 
+    // Yul assembly functions for IEO paused state
+    function isPaused() public view returns (bool) {
+        bytes32 slot = IEO_PAUSED_SLOT;
+        uint256 status;
+        assembly ("memory-safe") {
+            status := sload(slot)
+        }
+        return status == 1;
+    }
+
+    function setPaused(bool paused) internal {
+        bytes32 slot = IEO_PAUSED_SLOT;
+        uint256 value = paused ? 1 : 0;
+        assembly ("memory-safe") {
+            sstore(slot, value)
+        }
+    }
+
     // Reentrancy guard functions
     function nonReentrantBefore() internal {
         bytes32 slot = REENTRANCY_GUARD_FLAG_SLOT;
@@ -195,7 +259,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Setter for reward tracking address
-    function setRewardTrackingAddress(address _rewardTrackingAddress) external override onlyOwner {
+    function setRewardTrackingAddress(address _rewardTrackingAddress)
+        external
+        onlyOwner
+    {
         if (_rewardTrackingAddress == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
@@ -205,15 +272,121 @@ contract IEO is Ownable, IIEO {
         emit RewardTrackingEnabled(true);
     }
 
+    // Setter for business admin address (admin only)
+    function setBusinessAdmin(address _businessAdmin)
+        external
+        onlyAdmin
+    {
+        if (_businessAdmin == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        
+        address oldBusinessAdmin = businessAdmin;
+        businessAdmin = _businessAdmin;
+        
+        emit BusinessAdminUpdated(oldBusinessAdmin, _businessAdmin);
+    }
+
+    // Price validation management (business admin only)
+    function setPriceValidation(uint128 _minTokenPrice, uint128 _maxTokenPrice)
+        external
+        onlyBusinessAdmin
+    {
+        if (_minTokenPrice > 0 && _maxTokenPrice > 0 && _minTokenPrice >= _maxTokenPrice) {
+            revert FundraisingErrors.InvalidInvestmentRange(); // Reuse existing error for price range
+        }
+        
+        minTokenPrice = _minTokenPrice;
+        maxTokenPrice = _maxTokenPrice;
+        
+        emit PriceValidationUpdated(_minTokenPrice, _maxTokenPrice, _minTokenPrice > 0 || _maxTokenPrice > 0);
+    }
+
+    // Oracle circuit breaker management (business admin only)
+    function setCircuitBreaker(
+        uint32 _priceStalenessThreshold,
+        uint16 _maxPriceDeviation,
+        bool _enabled
+    )
+        external
+        onlyBusinessAdmin
+    {
+        require(_priceStalenessThreshold > 0, "Invalid staleness threshold");
+        require(_maxPriceDeviation <= 10000, "Invalid deviation percentage"); // Max 100%
+        
+        priceStalenessThreshold = _priceStalenessThreshold;
+        maxPriceDeviation = _maxPriceDeviation;
+        circuitBreakerEnabled = _enabled;
+        
+        // Reset circuit breaker if enabling
+        if (_enabled) {
+            circuitBreakerTriggered = false;
+        }
+        
+        emit CircuitBreakerUpdated(_priceStalenessThreshold, _maxPriceDeviation, _enabled);
+    }
+
+    function resetCircuitBreaker() external onlyBusinessAdmin {
+        circuitBreakerTriggered = false;
+        emit CircuitBreakerReset();
+    }
+
+    function enableCircuitBreaker() external onlyBusinessAdmin {
+        circuitBreakerEnabled = true;
+        circuitBreakerTriggered = false;
+        emit CircuitBreakerEnabled(true);
+    }
+
+    function disableCircuitBreaker()
+        external
+        onlyBusinessAdmin
+    {
+        circuitBreakerEnabled = false;
+        circuitBreakerTriggered = false;
+        emit CircuitBreakerEnabled(false);
+    }
+
+    // Set price oracle address
+    function setPriceOracle(address _priceOracle)
+        external
+        onlyOwner
+    {
+        if (_priceOracle == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        priceOracle = _priceOracle;
+        emit PriceOracleUpdated(_priceOracle);
+    }
+
+    // Pause/Unpause functions (business admin only)
+    function pauseIEO() external onlyBusinessAdmin {
+        require(isIEOActive(), "IEO not active");
+        require(!isPaused(), "IEO already paused");
+        
+        setPaused(true);
+        emit IEOpaused();
+    }
+
+    function unpauseIEO() external onlyBusinessAdmin {
+        require(isIEOActive(), "IEO not active");
+        require(isPaused(), "IEO not paused");
+        
+        setPaused(false);
+        emit IEOunpaused();
+    }
+
     // Start IEO
-    function startIEO(uint256 duration) external override onlyBusinessAdmin {
+    function startIEO()
+        external
+        onlyBusinessAdmin
+    {
         require(!isIEOActive(), "IEO already active");
         
-        ieoStartTime = block.timestamp;
-        ieoEndTime = block.timestamp + duration;
+        ieoStartTime = uint64(block.timestamp);
         setIEOActive(true);
+        setPaused(false); // Ensure not paused when starting
         
-        emit IEOStarted(ieoStartTime, ieoEndTime);
+        emit IEOStarted(ieoStartTime);
     }
 
     // End IEO
@@ -221,35 +394,71 @@ contract IEO is Ownable, IIEO {
         require(isIEOActive(), "IEO not active");
         
         setIEOActive(false);
+        setPaused(false); // Ensure not paused when ending
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
+    function calculateTokenAmount(uint256 usdcAmount, uint256 tokenPrice, uint256 priceDecimals)
+        internal
+        pure
+        returns (uint256)
+    {
+        // Validate priceDecimals range to prevent overflow
+        require(priceDecimals <= MAX_PRICE_DECIMALS, "Price decimals too high");
+        
+        // Calculate multiplier safely
+        uint256 multiplier = 10 ** priceDecimals;
+        
+        // Calculate numerator
+        uint256 numerator = usdcAmount * 1e18 * multiplier;
+        
+        // Validate no overflow occurred by checking the reverse calculation
+        require(numerator / usdcAmount / 1e18 == multiplier, "Overflow in token calculation");
+        
+        return numerator / tokenPrice;
+    }
+
     // Invest in IEO (supports multiple separate investments)
-    function invest(uint256 usdcAmount) external override onlyIEOActive nonReentrant {
+    function invest(uint256 usdcAmount)
+        external
+        nonReentrant
+        circuitBreakerNotTriggered
+    {
         if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
             revert FundraisingErrors.InvalidInvestmentAmount();
         }
 
-        // Get token price from oracle
-        (uint256 tokenPrice, uint256 priceDecimals) = IPriceOracle(priceOracle).getPrice(tokenAddress);
+        // Get token price from oracle (now includes timestamp)
+        (uint256 tokenPrice, uint256 priceDecimals, uint256 priceTimestamp) = IPriceOracle(priceOracle).getPrice(tokenAddress);
         if (tokenPrice == 0) {
             revert FundraisingErrors.InvalidPrice();
         }
 
-        // Calculate token amount (USDC has 6 decimals, token has 18 decimals)
-        uint256 tokenAmount = (usdcAmount * 1e18 * (10 ** priceDecimals)) / tokenPrice;
+        // Apply oracle circuit breaker checks
+        _validateOraclePrice(tokenPrice, priceTimestamp);
+
+        // Validate price if bounds are set (price validation is always enabled when bounds exist)
+        if (minTokenPrice > 0 || maxTokenPrice > 0) {
+            if (minTokenPrice > 0 && tokenPrice < minTokenPrice) {
+                revert FundraisingErrors.InvalidPrice();
+            }
+            if (maxTokenPrice > 0 && tokenPrice > maxTokenPrice) {
+                revert FundraisingErrors.InvalidPrice();
+            }
+        }
+
+        // Calculate token amount 
+        uint256 tokenAmount = calculateTokenAmount(usdcAmount, tokenPrice, priceDecimals);
 
         // Transfer USDC from investor
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
-
-        // Update total deposited
-        totalDeposited += usdcAmount;
+        totalDeposited += uint128(usdcAmount);
 
         // Create new separate investment
         Investment memory newInvestment = Investment({
-            usdcAmount: usdcAmount,
-            tokenAmount: tokenAmount,
-            investmentTime: block.timestamp,
+            usdcAmount: uint128(usdcAmount),
+            tokenAmount: uint128(tokenAmount),
+            investmentTime: uint64(block.timestamp),
             claimed: false,
             refunded: false
         });
@@ -263,8 +472,9 @@ contract IEO is Ownable, IIEO {
             investors.push(msg.sender);
         }
 
-        totalRaised += usdcAmount;
-        totalTokensSold += tokenAmount;
+        
+        totalRaised += uint128(usdcAmount);
+        totalTokensSold += uint128(tokenAmount);
 
         // Notify reward tracking contract if enabled
         if (isRewardTrackingEnabled() && rewardTrackingAddress != address(0)) {
@@ -272,6 +482,40 @@ contract IEO is Ownable, IIEO {
         }
 
         emit InvestmentMade(msg.sender, usdcAmount, tokenAmount);
+    }
+
+    // Internal function to validate oracle price
+    function _validateOraclePrice(uint256 tokenPrice, uint256 priceTimestamp)
+        internal
+    {
+        if (!circuitBreakerEnabled) {
+            return; // Circuit breaker disabled, skip validation
+        }
+
+        uint256 currentTime = block.timestamp;
+
+        // Check price staleness using oracle timestamp
+        if (currentTime - priceTimestamp > priceStalenessThreshold) {
+            circuitBreakerTriggered = true;
+            emit CircuitBreakerTriggered("Price too stale");
+            revert FundraisingErrors.CircuitBreakerTriggered();
+        }
+
+        // Check price deviation (only if we have a previous price)
+        if (lastValidPrice > 0) {
+            uint256 priceChange = tokenPrice > lastValidPrice 
+                ? ((tokenPrice - lastValidPrice) * 10000) / lastValidPrice
+                : ((lastValidPrice - tokenPrice) * 10000) / lastValidPrice;
+
+            if (priceChange > maxPriceDeviation) {
+                circuitBreakerTriggered = true;
+                emit CircuitBreakerTriggered("Price deviation too high");
+                revert FundraisingErrors.CircuitBreakerTriggered();
+            }
+        }
+
+        // Update oracle state
+        lastValidPrice = uint128(tokenPrice);
     }
 
     // Claim tokens (after claim delay) - claims all unclaimed investments
@@ -312,7 +556,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Refund specific investment by index
-    function refundInvestmentByIndex(uint256 investmentIndex) external nonReentrant {
+    function refundInvestmentByIndex(uint256 investmentIndex)
+        external
+        nonReentrant
+    {
         Investment[] storage investments = userInvestments[msg.sender];
         
         if (investments.length == 0) {
@@ -349,7 +596,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // Refund all refundable investments
-    function refundAllInvestments() external override nonReentrant {
+    function refundInvestment() external override nonReentrant {
         Investment[] storage investments = userInvestments[msg.sender];
         
         if (investments.length == 0) {
@@ -386,7 +633,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Business admin withdrawal (after per-investment delay)
-    function withdrawUSDC(uint256 amount) external onlyBusinessAdmin nonReentrant {
+    function withdrawUSDC(uint128 amount)
+        external
+        onlyBusinessAdmin
+        nonReentrant
+    {
         require(amount > 0, "Amount must be greater than 0");
         require(amount <= getWithdrawableAmount(), "Amount exceeds withdrawable amount");
         
@@ -397,31 +648,34 @@ contract IEO is Ownable, IIEO {
     }
 
     // Withdraw all available USDC
-    function withdrawAllUSDC() external onlyBusinessAdmin nonReentrant {
+    function withdrawAllUSDC()
+        external
+        onlyBusinessAdmin
+        nonReentrant
+    {
         uint256 withdrawableAmount = getWithdrawableAmount();
         require(withdrawableAmount > 0, "No withdrawable amount");
         
-        totalWithdrawn += withdrawableAmount;
+        totalWithdrawn += uint128(withdrawableAmount);
         IERC20(USDC_ADDRESS).transfer(businessAdmin, withdrawableAmount);
         
         emit USDCWithdrawn(businessAdmin, withdrawableAmount);
     }
 
-    // Admin functions
-    function setPriceOracle(address _priceOracle) external override onlyOwner {
-        if (_priceOracle == address(0)) {
-            revert FundraisingErrors.ZeroAddress();
-        }
-        priceOracle = _priceOracle;
-        emit PriceOracleUpdated(_priceOracle);
-    }
     // Emergency functions
-    function emergencyWithdrawUSDC(uint256 amount) external override onlyOwner {
+    function emergencyWithdrawUSDC(uint256 amount)
+        external
+        onlyOwner
+    {
         IERC20(USDC_ADDRESS).transfer(owner(), amount);
     }
 
     // View functions
-    function getInvestment(address investor) external view override returns (Investment memory) {
+    function getInvestment(address investor)
+        external
+        view
+        returns (Investment memory)
+    {
         // Return the latest investment for backward compatibility
         Investment[] memory investments = userInvestments[investor];
         if (investments.length == 0) {
@@ -430,16 +684,28 @@ contract IEO is Ownable, IIEO {
         return investments[investments.length - 1];
     }
 
-    function getUserInvestments(address investor) external view returns (Investment[] memory) {
+    function getUserInvestments(address investor)
+        external
+        view
+        returns (Investment[] memory)
+    {
         return userInvestments[investor];
     }
 
-    function getUserInvestmentCount(address investor) external view returns (uint256) {
+    function getUserInvestmentCount(address investor)
+        external
+        view
+        returns (uint256)
+    {
         return userInvestments[investor].length;
     }
 
     // Get specific investment by index
-    function getUserInvestmentByIndex(address investor, uint256 index) external view returns (Investment memory) {
+    function getUserInvestmentByIndex(address investor, uint256 index)
+        external
+        view
+        returns (Investment memory)
+    {
         Investment[] memory investments = userInvestments[investor];
         if (index >= investments.length) {
             revert("Investment index out of bounds");
@@ -448,7 +714,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Get refundable investments for a user
-    function getRefundableInvestments(address investor) external view returns (uint256[] memory refundableIndices) {
+    function getRefundableInvestments(address investor)
+        external
+        view
+        returns (uint256[] memory refundableIndices)
+    {
         Investment[] memory investments = userInvestments[investor];
         uint256 currentTime = block.timestamp;
         uint256 refundableCount = 0;
@@ -476,7 +746,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Get claimable investments for a user
-    function getClaimableInvestments(address investor) external view returns (uint256[] memory claimableIndices) {
+    function getClaimableInvestments(address investor)
+        external
+        view
+        returns (uint256[] memory claimableIndices)
+    {
         Investment[] memory investments = userInvestments[investor];
         uint256 currentTime = block.timestamp;
         uint256 claimableCount = 0;
@@ -503,24 +777,44 @@ contract IEO is Ownable, IIEO {
         }
     }
 
-    function getInvestorCount() external view override returns (uint256) {
+    function getInvestorCount()
+        external
+        view
+        returns (uint256)
+    {
         return investors.length;
     }
 
-    function getInvestor(uint256 index) external view override returns (address) {
+    function getInvestor(uint256 index)
+        external
+        view
+        returns (address)
+    {
         return investors[index];
     }
 
-    function getIEOStatus() external view override returns (bool) {
-        return isIEOActive() && block.timestamp >= ieoStartTime && block.timestamp <= ieoEndTime;
+    function getIEOStatus()
+        external
+        view
+        returns (bool)
+    {
+        return isIEOActive() && block.timestamp >= ieoStartTime;
     }
 
-    function getUSDCBalance() external view override returns (uint256) {
+    function getUSDCBalance()
+        external
+        view
+        returns (uint256)
+    {
         return IERC20(USDC_ADDRESS).balanceOf(address(this));
     }
 
-    // TODO: consider gas-effective way with backend logic in mind.
-    function getWithdrawableAmount() public view returns (uint256) {
+    // New view functions for withdrawal tracking
+    function getWithdrawableAmount()
+        public
+        view
+        returns (uint256)
+    {
         uint256 withdrawable = 0;
         uint256 currentTime = block.timestamp;
         
@@ -549,24 +843,44 @@ contract IEO is Ownable, IIEO {
         return withdrawable > totalWithdrawn ? withdrawable - totalWithdrawn : 0;
     }
 
-    function getTotalDeposited() external view returns (uint256) {
+    function getTotalDeposited()
+        external
+        view
+        returns (uint256)
+    {
         return totalDeposited;
     }
 
-    function getTotalWithdrawn() external view returns (uint256) {
+    function getTotalWithdrawn()
+        external
+        view
+        returns (uint256)
+    {
         return totalWithdrawn;
     }
 
-    function getBusinessAdmin() external view returns (address) {
+    function getBusinessAdmin()
+        external
+        view
+        returns (address)
+    {
         return businessAdmin;
     }
 
-    function getWithdrawalDelay() external view returns (uint256) {
+    function getWithdrawalDelay()
+        external
+        view
+        returns (uint256)
+    {
         return WITHDRAWAL_DELAY;
     }
 
     // Helper function to get withdrawable amount for a specific investor
-    function getInvestorWithdrawableAmount(address investor) external view returns (uint256) {
+    function getInvestorWithdrawableAmount(address investor)
+        external
+        view
+        returns (uint256)
+    {
         Investment[] memory investments = userInvestments[investor];
         uint256 withdrawable = 0;
         uint256 currentTime = block.timestamp;
@@ -585,6 +899,72 @@ contract IEO is Ownable, IIEO {
         
         return withdrawable;
     }
+
+    // Price validation view functions
+    function getMinTokenPrice()
+        external
+        view
+        returns (uint128)
+    {
+        return minTokenPrice;
+    }
+
+    function getMaxTokenPrice()
+        external
+        view
+        returns (uint128)
+    {
+        return maxTokenPrice;
+    }
+
+    function isPriceValidationEnabled()
+        external
+        view
+        returns (bool)
+    {
+        return minTokenPrice > 0 || maxTokenPrice > 0;
+    }
+
+    // Oracle circuit breaker view functions
+    function getPriceStalenessThreshold()
+        external
+        view
+        returns (uint32)
+    {
+        return priceStalenessThreshold;
+    }
+
+    function getMaxPriceDeviation()
+        external
+        view
+        returns (uint16)
+    {
+        return maxPriceDeviation;
+    }
+
+    function getLastValidPrice()
+        external
+        view
+        returns (uint128)
+    {
+        return lastValidPrice;
+    }
+
+    function isCircuitBreakerEnabled()
+        external
+        view
+        returns (bool)
+    {
+        return circuitBreakerEnabled;
+    }
+
+    function isCircuitBreakerTriggered()
+        external
+        view
+        returns (bool)
+    {
+        return circuitBreakerTriggered;
+    }
 }
 
 // Interface for reward tracking
@@ -592,5 +972,13 @@ interface IRewardTracking {
     function onTokenSold(address user, uint256 amount) external;
 }
 
-// New event for USDC withdrawal
+// New events for price validation and circuit breaker
+event PriceValidationUpdated(uint256 minPrice, uint256 maxPrice, bool enabled);
+event CircuitBreakerUpdated(uint256 stalenessThreshold, uint256 maxDeviation, bool enabled);
+event CircuitBreakerTriggered(string reason);
+event CircuitBreakerReset();
+event CircuitBreakerEnabled(bool enabled);
 event USDCWithdrawn(address indexed businessAdmin, uint256 amount);
+event IEOpaused();
+event IEOunpaused();
+event BusinessAdminUpdated(address indexed oldBusinessAdmin, address indexed newBusinessAdmin);

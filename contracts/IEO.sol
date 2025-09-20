@@ -15,54 +15,57 @@ contract IEO is Ownable, IIEO {
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("ieo.reentrancy.guard"));
     
     // Reentrancy guard constants
-    uint256 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
-    uint256 internal constant REENTRANCY_GUARD_ENTERED = 2;
+    uint8 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
+    uint8 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
     // Constants
     address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    uint256 public constant MAX_PRICE_DECIMALS = 18; // Maximum allowed price decimals
+    uint8 public constant MAX_PRICE_DECIMALS = 18; // Maximum allowed price decimals
     
     // Immutable variables set during deployment
     address public immutable override tokenAddress;
     address public immutable override admin;
-    uint256 public immutable override CLAIM_DELAY;
-    uint256 public immutable override REFUND_PERIOD;
-    uint256 public immutable override MIN_INVESTMENT;
-    uint256 public immutable override MAX_INVESTMENT;
-    uint256 public immutable WITHDRAWAL_DELAY; // Same as claim/refund delay
+    uint32 public immutable override CLAIM_DELAY;
+    uint32 public immutable override REFUND_PERIOD;
+    uint128 public immutable override MIN_INVESTMENT;
+    uint128 public immutable override MAX_INVESTMENT;
+    uint32 public immutable WITHDRAWAL_DELAY; // Same as claim/refund delay
     
-    // State variables
+    // State variables - optimally packed for gas efficiency
+    
+    // Addresses (20 bytes each) - group together
     address public override rewardTrackingAddress;
     address public override priceOracle;
     address public businessAdmin; // Changed from immutable to allow updates
     
-    uint256 public override ieoStartTime;
-    uint256 public override ieoEndTime;
-    uint256 public override totalRaised;
-    uint256 public override totalTokensSold;
+    // Time variables (8 bytes each) - can pack 2 per slot
+    uint64 public override ieoStartTime;
+    uint64 public override ieoEndTime;
     
-    // Price validation (adjustable by business admin)
-    uint256 public minTokenPrice;        // Minimum acceptable token price
-    uint256 public maxTokenPrice;        // Maximum acceptable token price
+    // Amount variables (16 bytes each) - can pack 2 per slot
+    uint128 public override totalRaised;
+    uint128 public override totalTokensSold;
+    uint128 public totalDeposited;        // Total USDC received from all investments
+    uint128 public totalWithdrawn;        // Total USDC withdrawn by business admin
     
-    // Oracle circuit breaker system
-    uint256 public priceStalenessThreshold; // Maximum age of price data (in seconds)
-    uint256 public maxPriceDeviation;    // Maximum price deviation percentage (in basis points)
-    uint256 public lastValidPrice;       // Last valid price for deviation check
+    // Price variables (16 bytes each) - can pack 2 per slot
+    uint128 public minTokenPrice;        // Minimum acceptable token price
+    uint128 public maxTokenPrice;        // Maximum acceptable token price
+    uint128 public lastValidPrice;       // Last valid price for deviation check
+    
+    // Configuration variables (4 bytes each) - can pack 8 per slot
+    uint32 public priceStalenessThreshold; // Maximum age of price data (in seconds)
+    uint32 public investmentCounter;      // Investment counter for unique IDs
+    
+    // Small variables (2 bytes and 1 byte) - can pack many per slot
+    uint16 public maxPriceDeviation;    // Maximum price deviation percentage (in basis points)
     bool public circuitBreakerEnabled;   // Whether circuit breaker is enabled
     bool public circuitBreakerTriggered; // Whether circuit breaker is currently triggered
     
-    // Withdrawal tracking (per-investment based)
-    uint256 public totalDeposited;        // Total USDC received from all investments
-    uint256 public totalWithdrawn;        // Total USDC withdrawn by business admin
-    
-    // Separate investment tracking
+    // Mappings and arrays (separate storage)
     mapping(address => Investment[]) public userInvestments;  // Array of investments per user
     mapping(address => bool) public isInvestor;               // Track if user has ever invested
     address[] public investors;                               // List of all investors
-    
-    // Investment counter for unique IDs
-    uint256 public investmentCounter;
 
     modifier onlyBusinessAdmin() {
         if (msg.sender != businessAdmin && msg.sender != owner()) {
@@ -144,11 +147,11 @@ contract IEO is Ownable, IIEO {
         admin = _admin;
         businessAdmin = _businessAdmin; // Now a state variable
         
-        CLAIM_DELAY = _delayDays * 1 days;
-        REFUND_PERIOD = _delayDays * 1 days; // Same as claim delay
-        MIN_INVESTMENT = _minInvestment;
-        MAX_INVESTMENT = _maxInvestment;
-        WITHDRAWAL_DELAY = _delayDays * 1 days; // Same as claim/refund delay
+        CLAIM_DELAY = uint32(_delayDays * 1 days);
+        REFUND_PERIOD = uint32(_delayDays * 1 days); // Same as claim delay
+        MIN_INVESTMENT = uint128(_minInvestment);
+        MAX_INVESTMENT = uint128(_maxInvestment);
+        WITHDRAWAL_DELAY = uint32(_delayDays * 1 days); // Same as claim/refund delay
         
         // Initialize state variables
         rewardTrackingAddress = address(0);
@@ -387,8 +390,8 @@ contract IEO is Ownable, IIEO {
     {
         require(!isIEOActive(), "IEO already active");
         
-        ieoStartTime = block.timestamp;
-        ieoEndTime = block.timestamp + duration;
+        ieoStartTime = uint64(block.timestamp);
+        ieoEndTime = uint64(block.timestamp + duration);
         setIEOActive(true);
         setPaused(false); // Ensure not paused when starting
         
@@ -458,13 +461,13 @@ contract IEO is Ownable, IIEO {
 
         // Transfer USDC from investor
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
-        totalDeposited += usdcAmount;
+        totalDeposited += uint128(usdcAmount);
 
         // Create new separate investment
         Investment memory newInvestment = Investment({
-            usdcAmount: usdcAmount,
-            tokenAmount: tokenAmount,
-            investmentTime: block.timestamp,
+            usdcAmount: uint128(usdcAmount),
+            tokenAmount: uint128(tokenAmount),
+            investmentTime: uint64(block.timestamp),
             claimed: false,
             refunded: false
         });
@@ -479,8 +482,8 @@ contract IEO is Ownable, IIEO {
         }
 
         
-        totalRaised += usdcAmount;
-        totalTokensSold += tokenAmount;
+        totalRaised += uint128(usdcAmount);
+        totalTokensSold += uint128(tokenAmount);
 
         // Notify reward tracking contract if enabled
         if (isRewardTrackingEnabled() && rewardTrackingAddress != address(0)) {

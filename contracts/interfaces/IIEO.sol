@@ -20,11 +20,11 @@ interface IIEO {
      * @param refunded Whether the investment has been refunded
      */
     struct Investment {
-        uint256 usdcAmount;
-        uint256 tokenAmount;
-        uint256 investmentTime;
-        bool claimed;
-        bool refunded;
+        uint128 usdcAmount;    // Optimized: USDC has 6 decimals, 2^128-1 is more than enough
+        uint128 tokenAmount;   // Optimized: tokens won't exceed 2^128-1
+        uint64 investmentTime; // Optimized: timestamps won't exceed 2^64-1
+        bool claimed;          // Already optimal
+        bool refunded;         // Already optimal
     }
 
     // ============ Events ============
@@ -158,25 +158,25 @@ interface IIEO {
      * @notice Returns the claim delay period
      * @return The claim delay in seconds
      */
-    function CLAIM_DELAY() external view returns (uint256);
+    function CLAIM_DELAY() external view returns (uint32);
     
     /**
      * @notice Returns the refund period
      * @return The refund period in seconds
      */
-    function REFUND_PERIOD() external view returns (uint256);
+    function REFUND_PERIOD() external view returns (uint32);
     
     /**
      * @notice Returns the minimum investment amount
      * @return The minimum investment amount in USDC
      */
-    function MIN_INVESTMENT() external view returns (uint256);
+    function MIN_INVESTMENT() external view returns (uint128);
     
     /**
      * @notice Returns the maximum investment amount
      * @return The maximum investment amount in USDC
      */
-    function MAX_INVESTMENT() external view returns (uint256);
+    function MAX_INVESTMENT() external view returns (uint128);
 
     // ============ View Functions ============
     
@@ -226,25 +226,25 @@ interface IIEO {
      * @notice Returns the IEO start time
      * @return The IEO start timestamp
      */
-    function ieoStartTime() external view returns (uint256);
+    function ieoStartTime() external view returns (uint64);
     
     /**
      * @notice Returns the IEO end time
      * @return The IEO end timestamp
      */
-    function ieoEndTime() external view returns (uint256);
+    function ieoEndTime() external view returns (uint64);
     
     /**
      * @notice Returns the total amount raised
      * @return The total USDC raised
      */
-    function totalRaised() external view returns (uint256);
+    function totalRaised() external view returns (uint128);
     
     /**
      * @notice Returns the total tokens sold
      * @return The total tokens sold
      */
-    function totalTokensSold() external view returns (uint256);
+    function totalTokensSold() external view returns (uint128);
     
     /**
      * @notice Returns whether reward tracking is enabled

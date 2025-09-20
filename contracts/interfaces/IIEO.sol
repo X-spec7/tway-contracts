@@ -32,7 +32,6 @@ interface IIEO {
     /**
      * @notice Emitted when IEO starts
      * @param startTime The timestamp when IEO started
-     * @param endTime The timestamp when IEO ends
      */
     event IEOStarted(uint256 startTime);
     
@@ -361,13 +360,13 @@ interface IIEO {
      * @notice Returns the minimum acceptable token price
      * @return The minimum token price
      */
-    function getMinTokenPrice() external view returns (uint256);
+    function getMinTokenPrice() external view returns (uint128);
     
     /**
      * @notice Returns the maximum acceptable token price
      * @return The maximum token price
      */
-    function getMaxTokenPrice() external view returns (uint256);
+    function getMaxTokenPrice() external view returns (uint128);
     
     /**
      * @notice Returns whether price validation is enabled
@@ -379,19 +378,19 @@ interface IIEO {
      * @notice Returns the price staleness threshold
      * @return The staleness threshold in seconds
      */
-    function getPriceStalenessThreshold() external view returns (uint256);
+    function getPriceStalenessThreshold() external view returns (uint32);
 
     /**
      * @notice Returns the maximum price deviation percentage
      * @return The maximum price deviation in basis points
      */
-    function getMaxPriceDeviation() external view returns (uint256);
+    function getMaxPriceDeviation() external view returns (uint16);
 
     /**
      * @notice Returns the last valid price
      * @return The last valid price
      */
-    function getLastValidPrice() external view returns (uint256);
+    function getLastValidPrice() external view returns (uint128);
 
     /**
      * @notice Returns whether circuit breaker is enabled
@@ -438,7 +437,7 @@ interface IIEO {
      * @dev Only callable by business admin after per-investment delay
      * @param amount The amount of USDC to withdraw
      */
-    function withdrawUSDC(uint256 amount) external;
+    function withdrawUSDC(uint128 amount) external;
     
     /**
      * @notice Withdraws all available USDC by business admin
@@ -451,7 +450,6 @@ interface IIEO {
     /**
      * @notice Starts the IEO
      * @dev Only callable by the owner
-     * @param duration The duration of the IEO in seconds
      */
     function startIEO() external;
     
@@ -460,12 +458,6 @@ interface IIEO {
      * @dev Only callable by the owner
      */
     function endIEO() external;
-    
-    /**
-     * @notice Releases USDC to reward tracking contract after 30 days
-     * @dev Only callable by the owner
-     */
-    function releaseUSDCToRewardTracking() external;
     
     /**
      * @notice Emergency withdraws USDC from the contract
@@ -504,13 +496,6 @@ interface IIEO {
     function setPriceOracle(address _priceOracle) external;
     
     /**
-     * @notice Sets the admin address
-     * @dev Only callable by the owner
-     * @param _admin The address of the new admin
-     */
-    function setAdmin(address _admin) external;
-    
-    /**
      * @notice Sets the business admin address
      * @dev Only callable by admin or owner
      * @param _businessAdmin The address of the new business admin
@@ -525,7 +510,7 @@ interface IIEO {
      * @param _minTokenPrice The minimum acceptable token price
      * @param _maxTokenPrice The maximum acceptable token price
      */
-    function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice) external;
+    function setPriceValidation(uint128 _minTokenPrice, uint128 _maxTokenPrice) external;
 
     /**
      * @notice Sets the circuit breaker parameters
@@ -534,7 +519,7 @@ interface IIEO {
      * @param _maxPriceDeviation The maximum price deviation percentage
      * @param _enabled Whether circuit breaker is enabled
      */
-    function setCircuitBreaker(uint256 _priceStalenessThreshold, uint256 _maxPriceDeviation, bool _enabled) external;
+    function setCircuitBreaker(uint32 _priceStalenessThreshold, uint16 _maxPriceDeviation, bool _enabled) external;
 
     /**
      * @notice Resets the circuit breaker

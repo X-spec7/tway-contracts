@@ -288,7 +288,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // Price validation management (business admin only)
-    function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice)
+    function setPriceValidation(uint128 _minTokenPrice, uint128 _maxTokenPrice)
         external
         onlyBusinessAdmin
     {
@@ -304,8 +304,8 @@ contract IEO is Ownable, IIEO {
 
     // Oracle circuit breaker management (business admin only)
     function setCircuitBreaker(
-        uint256 _priceStalenessThreshold,
-        uint256 _maxPriceDeviation,
+        uint32 _priceStalenessThreshold,
+        uint16 _maxPriceDeviation,
         bool _enabled
     )
         external
@@ -344,6 +344,18 @@ contract IEO is Ownable, IIEO {
         circuitBreakerEnabled = false;
         circuitBreakerTriggered = false;
         emit CircuitBreakerEnabled(false);
+    }
+
+    // Set price oracle address
+    function setPriceOracle(address _priceOracle)
+        external
+        onlyOwner
+    {
+        if (_priceOracle == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        priceOracle = _priceOracle;
+        emit PriceOracleUpdated(_priceOracle);
     }
 
     // Pause/Unpause functions (business admin only)
@@ -503,7 +515,7 @@ contract IEO is Ownable, IIEO {
         }
 
         // Update oracle state
-        lastValidPrice = tokenPrice;
+        lastValidPrice = uint128(tokenPrice);
     }
 
     // Claim tokens (after claim delay) - claims all unclaimed investments
@@ -621,7 +633,7 @@ contract IEO is Ownable, IIEO {
     }
 
     // Business admin withdrawal (after per-investment delay)
-    function withdrawUSDC(uint256 amount)
+    function withdrawUSDC(uint128 amount)
         external
         onlyBusinessAdmin
         nonReentrant
@@ -644,42 +656,10 @@ contract IEO is Ownable, IIEO {
         uint256 withdrawableAmount = getWithdrawableAmount();
         require(withdrawableAmount > 0, "No withdrawable amount");
         
-        totalWithdrawn += withdrawableAmount;
+        totalWithdrawn += uint128(withdrawableAmount);
         IERC20(USDC_ADDRESS).transfer(businessAdmin, withdrawableAmount);
         
         emit USDCWithdrawn(businessAdmin, withdrawableAmount);
-    }
-
-    // Release USDC to reward tracking contract (after 30 days)
-    function releaseUSDCToRewardTracking()
-        external
-        onlyOwner
-        rewardTrackingEnabled
-    {
-        require(block.timestamp >= ieoEndTime + 30 days, "30 days not passed since IEO ended");
-        
-        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
-        if (usdcBalance > 0) {
-            IERC20(USDC_ADDRESS).transfer(rewardTrackingAddress, usdcBalance);
-        }
-    }
-
-    // Set admin address (interface compliance)
-    function setAdmin(address _admin)
-        external
-        onlyOwner
-    {
-        // Note: admin is immutable, so this function cannot actually change it
-        // This is kept for interface compliance but will always revert
-        revert("Admin address is immutable")
-        external
-        onlyOwner
-    {
-        if (_priceOracle == address(0)) {
-            revert FundraisingErrors.ZeroAddress();
-        }
-        priceOracle = _priceOracle;
-        emit PriceOracleUpdated(_priceOracle);
     }
 
     // Emergency functions
@@ -924,7 +904,7 @@ contract IEO is Ownable, IIEO {
     function getMinTokenPrice()
         external
         view
-        returns (uint256)
+        returns (uint128)
     {
         return minTokenPrice;
     }
@@ -932,7 +912,7 @@ contract IEO is Ownable, IIEO {
     function getMaxTokenPrice()
         external
         view
-        returns (uint256)
+        returns (uint128)
     {
         return maxTokenPrice;
     }
@@ -949,7 +929,7 @@ contract IEO is Ownable, IIEO {
     function getPriceStalenessThreshold()
         external
         view
-        returns (uint256)
+        returns (uint32)
     {
         return priceStalenessThreshold;
     }
@@ -957,7 +937,7 @@ contract IEO is Ownable, IIEO {
     function getMaxPriceDeviation()
         external
         view
-        returns (uint256)
+        returns (uint16)
     {
         return maxPriceDeviation;
     }
@@ -965,7 +945,7 @@ contract IEO is Ownable, IIEO {
     function getLastValidPrice()
         external
         view
-        returns (uint256)
+        returns (uint128)
     {
         return lastValidPrice;
     }

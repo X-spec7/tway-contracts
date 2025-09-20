@@ -173,20 +173,35 @@ contract IEO is Ownable, IIEO {
     }
 
     // Override functions to satisfy both Ownable and IIEO
-    function owner() public view override(Ownable, IIEO) returns (address) {
+    function owner()
+        override(Ownable, IIEO)
+        public
+        view
+        returns (address)
+    {
         return super.owner();
     }
 
-    function transferOwnership(address newOwner) public override(Ownable, IIEO) {
+    function transferOwnership(address newOwner)
+        override(Ownable, IIEO)
+        public
+    {
         super.transferOwnership(newOwner);
     }
 
-    function renounceOwnership() public override(Ownable, IIEO) {
+    function renounceOwnership()
+        override(Ownable, IIEO)
+        public
+    {
         super.renounceOwnership();
     }
 
     // Yul assembly functions for reward tracking enabled state
-    function isRewardTrackingEnabled() public view override returns (bool) {
+    function isRewardTrackingEnabled()
+        public
+        view
+        returns (bool)
+    {
         bytes32 slot = REWARD_TRACKING_ENABLED_SLOT;
         uint256 status;
         assembly ("memory-safe") {
@@ -261,7 +276,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Setter for reward tracking address
-    function setRewardTrackingAddress(address _rewardTrackingAddress) external override onlyOwner {
+    function setRewardTrackingAddress(address _rewardTrackingAddress)
+        external
+        onlyOwner
+    {
         if (_rewardTrackingAddress == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
@@ -272,7 +290,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Setter for business admin address (admin only)
-    function setBusinessAdmin(address _businessAdmin) external onlyAdmin {
+    function setBusinessAdmin(address _businessAdmin)
+        external
+        onlyAdmin
+    {
         if (_businessAdmin == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
@@ -284,7 +305,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Price validation management (business admin only)
-    function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice) external onlyBusinessAdmin {
+    function setPriceValidation(uint256 _minTokenPrice, uint256 _maxTokenPrice)
+        external
+        onlyBusinessAdmin
+    {
         if (_minTokenPrice > 0 && _maxTokenPrice > 0 && _minTokenPrice >= _maxTokenPrice) {
             revert FundraisingErrors.InvalidInvestmentRange(); // Reuse existing error for price range
         }
@@ -300,7 +324,10 @@ contract IEO is Ownable, IIEO {
         uint256 _priceStalenessThreshold,
         uint256 _maxPriceDeviation,
         bool _enabled
-    ) external onlyBusinessAdmin {
+    )
+        external
+        onlyBusinessAdmin
+    {
         require(_priceStalenessThreshold > 0, "Invalid staleness threshold");
         require(_maxPriceDeviation <= 10000, "Invalid deviation percentage"); // Max 100%
         
@@ -327,7 +354,10 @@ contract IEO is Ownable, IIEO {
         emit CircuitBreakerEnabled(true);
     }
 
-    function disableCircuitBreaker() external onlyBusinessAdmin {
+    function disableCircuitBreaker()
+        external
+        onlyBusinessAdmin
+    {
         circuitBreakerEnabled = false;
         circuitBreakerTriggered = false;
         emit CircuitBreakerEnabled(false);
@@ -351,7 +381,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Start IEO
-    function startIEO(uint256 duration) external override onlyBusinessAdmin {
+    function startIEO(uint256 duration)
+        external
+        onlyBusinessAdmin
+    {
         require(!isIEOActive(), "IEO already active");
         
         ieoStartTime = block.timestamp;
@@ -371,7 +404,11 @@ contract IEO is Ownable, IIEO {
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
-    function calculateTokenAmount(uint256 usdcAmount, uint256 tokenPrice, uint256 priceDecimals) internal pure returns (uint256) {
+    function calculateTokenAmount(uint256 usdcAmount, uint256 tokenPrice, uint256 priceDecimals)
+        internal
+        pure
+        returns (uint256)
+    {
         // Validate priceDecimals range to prevent overflow
         require(priceDecimals <= MAX_PRICE_DECIMALS, "Price decimals too high");
         
@@ -388,7 +425,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Invest in IEO (supports multiple separate investments)
-    function invest(uint256 usdcAmount) external override onlyIEOActive whenNotPaused nonReentrant circuitBreakerNotTriggered {
+    function invest(uint256 usdcAmount)
+        external
+        nonReentrant
+        circuitBreakerNotTriggered
+    {
         if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
             revert FundraisingErrors.InvalidInvestmentAmount();
         }
@@ -450,7 +491,9 @@ contract IEO is Ownable, IIEO {
     }
 
     // Internal function to validate oracle price
-    function _validateOraclePrice(uint256 tokenPrice, uint256 priceTimestamp) internal {
+    function _validateOraclePrice(uint256 tokenPrice, uint256 priceTimestamp)
+        internal
+    {
         if (!circuitBreakerEnabled) {
             return; // Circuit breaker disabled, skip validation
         }
@@ -519,7 +562,10 @@ contract IEO is Ownable, IIEO {
     }
 
     // Refund specific investment by index
-    function refundInvestmentByIndex(uint256 investmentIndex) external nonReentrant {
+    function refundInvestmentByIndex(uint256 investmentIndex)
+        external
+        nonReentrant
+    {
         Investment[] storage investments = userInvestments[msg.sender];
         
         if (investments.length == 0) {
@@ -593,7 +639,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Business admin withdrawal (after per-investment delay)
-    function withdrawUSDC(uint256 amount) external onlyBusinessAdmin nonReentrant {
+    function withdrawUSDC(uint256 amount)
+        external
+        onlyBusinessAdmin
+        nonReentrant
+    {
         require(amount > 0, "Amount must be greater than 0");
         require(amount <= getWithdrawableAmount(), "Amount exceeds withdrawable amount");
         
@@ -604,7 +654,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Withdraw all available USDC
-    function withdrawAllUSDC() external onlyBusinessAdmin nonReentrant {
+    function withdrawAllUSDC()
+        external
+        onlyBusinessAdmin
+        nonReentrant
+    {
         uint256 withdrawableAmount = getWithdrawableAmount();
         require(withdrawableAmount > 0, "No withdrawable amount");
         
@@ -615,7 +669,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Release USDC to reward tracking contract (after 30 days)
-    function releaseUSDCToRewardTracking() external override onlyOwner rewardTrackingEnabled {
+    function releaseUSDCToRewardTracking()
+        external
+        onlyOwner
+        rewardTrackingEnabled
+    {
         require(block.timestamp >= ieoEndTime + 30 days, "30 days not passed since IEO ended");
         
         uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
@@ -625,14 +683,16 @@ contract IEO is Ownable, IIEO {
     }
 
     // Set admin address (interface compliance)
-    function setAdmin(address _admin) external override onlyOwner {
+    function setAdmin(address _admin)
+        external
+        onlyOwner
+    {
         // Note: admin is immutable, so this function cannot actually change it
         // This is kept for interface compliance but will always revert
-        revert("Admin address is immutable");
-    }
-
-    // Admin functions
-    function setPriceOracle(address _priceOracle) external override onlyOwner {
+        revert("Admin address is immutable")
+        external
+        onlyOwner
+    {
         if (_priceOracle == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
@@ -641,12 +701,19 @@ contract IEO is Ownable, IIEO {
     }
 
     // Emergency functions
-    function emergencyWithdrawUSDC(uint256 amount) external override onlyOwner {
+    function emergencyWithdrawUSDC(uint256 amount)
+        external
+        onlyOwner
+    {
         IERC20(USDC_ADDRESS).transfer(owner(), amount);
     }
 
     // View functions
-    function getInvestment(address investor) external view override returns (Investment memory) {
+    function getInvestment(address investor)
+        external
+        view
+        returns (Investment memory)
+    {
         // Return the latest investment for backward compatibility
         Investment[] memory investments = userInvestments[investor];
         if (investments.length == 0) {
@@ -655,16 +722,28 @@ contract IEO is Ownable, IIEO {
         return investments[investments.length - 1];
     }
 
-    function getUserInvestments(address investor) external view returns (Investment[] memory) {
+    function getUserInvestments(address investor)
+        external
+        view
+        returns (Investment[] memory)
+    {
         return userInvestments[investor];
     }
 
-    function getUserInvestmentCount(address investor) external view returns (uint256) {
+    function getUserInvestmentCount(address investor)
+        external
+        view
+        returns (uint256)
+    {
         return userInvestments[investor].length;
     }
 
     // Get specific investment by index
-    function getUserInvestmentByIndex(address investor, uint256 index) external view returns (Investment memory) {
+    function getUserInvestmentByIndex(address investor, uint256 index)
+        external
+        view
+        returns (Investment memory)
+    {
         Investment[] memory investments = userInvestments[investor];
         if (index >= investments.length) {
             revert("Investment index out of bounds");
@@ -673,7 +752,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Get refundable investments for a user
-    function getRefundableInvestments(address investor) external view returns (uint256[] memory refundableIndices) {
+    function getRefundableInvestments(address investor)
+        external
+        view
+        returns (uint256[] memory refundableIndices)
+    {
         Investment[] memory investments = userInvestments[investor];
         uint256 currentTime = block.timestamp;
         uint256 refundableCount = 0;
@@ -701,7 +784,11 @@ contract IEO is Ownable, IIEO {
     }
 
     // Get claimable investments for a user
-    function getClaimableInvestments(address investor) external view returns (uint256[] memory claimableIndices) {
+    function getClaimableInvestments(address investor)
+        external
+        view
+        returns (uint256[] memory claimableIndices)
+    {
         Investment[] memory investments = userInvestments[investor];
         uint256 currentTime = block.timestamp;
         uint256 claimableCount = 0;
@@ -728,24 +815,44 @@ contract IEO is Ownable, IIEO {
         }
     }
 
-    function getInvestorCount() external view override returns (uint256) {
+    function getInvestorCount()
+        external
+        view
+        returns (uint256)
+    {
         return investors.length;
     }
 
-    function getInvestor(uint256 index) external view override returns (address) {
+    function getInvestor(uint256 index)
+        external
+        view
+        returns (address)
+    {
         return investors[index];
     }
 
-    function getIEOStatus() external view override returns (bool) {
+    function getIEOStatus()
+        external
+        view
+        returns (bool)
+    {
         return isIEOActive() && block.timestamp >= ieoStartTime && block.timestamp <= ieoEndTime;
     }
 
-    function getUSDCBalance() external view override returns (uint256) {
+    function getUSDCBalance()
+        external
+        view
+        returns (uint256)
+    {
         return IERC20(USDC_ADDRESS).balanceOf(address(this));
     }
 
     // New view functions for withdrawal tracking
-    function getWithdrawableAmount() public view returns (uint256) {
+    function getWithdrawableAmount()
+        public
+        view
+        returns (uint256)
+    {
         uint256 withdrawable = 0;
         uint256 currentTime = block.timestamp;
         
@@ -774,24 +881,44 @@ contract IEO is Ownable, IIEO {
         return withdrawable > totalWithdrawn ? withdrawable - totalWithdrawn : 0;
     }
 
-    function getTotalDeposited() external view returns (uint256) {
+    function getTotalDeposited()
+        external
+        view
+        returns (uint256)
+    {
         return totalDeposited;
     }
 
-    function getTotalWithdrawn() external view returns (uint256) {
+    function getTotalWithdrawn()
+        external
+        view
+        returns (uint256)
+    {
         return totalWithdrawn;
     }
 
-    function getBusinessAdmin() external view returns (address) {
+    function getBusinessAdmin()
+        external
+        view
+        returns (address)
+    {
         return businessAdmin;
     }
 
-    function getWithdrawalDelay() external view returns (uint256) {
+    function getWithdrawalDelay()
+        external
+        view
+        returns (uint256)
+    {
         return WITHDRAWAL_DELAY;
     }
 
     // Helper function to get withdrawable amount for a specific investor
-    function getInvestorWithdrawableAmount(address investor) external view returns (uint256) {
+    function getInvestorWithdrawableAmount(address investor)
+        external
+        view
+        returns (uint256)
+    {
         Investment[] memory investments = userInvestments[investor];
         uint256 withdrawable = 0;
         uint256 currentTime = block.timestamp;
@@ -812,36 +939,68 @@ contract IEO is Ownable, IIEO {
     }
 
     // Price validation view functions
-    function getMinTokenPrice() external view returns (uint256) {
+    function getMinTokenPrice()
+        external
+        view
+        returns (uint256)
+    {
         return minTokenPrice;
     }
 
-    function getMaxTokenPrice() external view returns (uint256) {
+    function getMaxTokenPrice()
+        external
+        view
+        returns (uint256)
+    {
         return maxTokenPrice;
     }
 
-    function isPriceValidationEnabled() external view returns (bool) {
+    function isPriceValidationEnabled()
+        external
+        view
+        returns (bool)
+    {
         return minTokenPrice > 0 || maxTokenPrice > 0;
     }
 
     // Oracle circuit breaker view functions
-    function getPriceStalenessThreshold() external view returns (uint256) {
+    function getPriceStalenessThreshold()
+        external
+        view
+        returns (uint256)
+    {
         return priceStalenessThreshold;
     }
 
-    function getMaxPriceDeviation() external view returns (uint256) {
+    function getMaxPriceDeviation()
+        external
+        view
+        returns (uint256)
+    {
         return maxPriceDeviation;
     }
 
-    function getLastValidPrice() external view returns (uint256) {
+    function getLastValidPrice()
+        external
+        view
+        returns (uint256)
+    {
         return lastValidPrice;
     }
 
-    function isCircuitBreakerEnabled() external view returns (bool) {
+    function isCircuitBreakerEnabled()
+        external
+        view
+        returns (bool)
+    {
         return circuitBreakerEnabled;
     }
 
-    function isCircuitBreakerTriggered() external view returns (bool) {
+    function isCircuitBreakerTriggered()
+        external
+        view
+        returns (bool)
+    {
         return circuitBreakerTriggered;
     }
 }

@@ -11,8 +11,8 @@ contract RewardTracking is Ownable, IRewardTracking {
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("reward.tracking.reentrancy.guard"));
     
     // Reentrancy guard constants
-    uint256 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
-    uint256 internal constant REENTRANCY_GUARD_ENTERED = 2;
+    uint8 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
+    uint8 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
     // Constants
     address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
@@ -50,20 +50,31 @@ contract RewardTracking is Ownable, IRewardTracking {
             totalTokenSold: 0,
             accumulatedRewardPerToken: 0,
             totalUSDCDeposited: 0,
-            lastRewardBlock: block.number
+            lastRewardBlock: uint64(block.number)
         });
     }
 
     // Override functions to satisfy both Ownable and IRewardTracking
-    function owner() public view override(Ownable, IRewardTracking) returns (address) {
+    function owner()
+        override(Ownable, IRewardTracking)
+        public
+        view
+        returns (address)
+    {
         return super.owner();
     }
 
-    function transferOwnership(address newOwner) public override(Ownable, IRewardTracking) {
+    function transferOwnership(address newOwner)
+        override(Ownable, IRewardTracking)
+        public
+    {
         super.transferOwnership(newOwner);
     }
 
-    function renounceOwnership() public override(Ownable, IRewardTracking) {
+    function renounceOwnership()
+        override(Ownable, IRewardTracking)
+        public
+    {
         super.renounceOwnership();
     }
 
@@ -88,7 +99,11 @@ contract RewardTracking is Ownable, IRewardTracking {
         }
     }
 
-    function depositUSDC(uint256 amount) external onlyOwner nonReentrant {
+    function depositUSDC(uint256 amount)
+        external
+        onlyOwner
+        nonReentrant
+    {
         // Revert if no tokens have been sold yet
         if (poolInfo.totalTokenSold == 0) {
             revert FundraisingErrors.NoTokensSold();
@@ -104,25 +119,28 @@ contract RewardTracking is Ownable, IRewardTracking {
             // Ensure totalTokenSold is not zero to prevent division by zero
             require(poolInfo.totalTokenSold > 0, "No tokens sold yet");
             
-            poolInfo.totalUSDCDeposited += amount;
+            poolInfo.totalUSDCDeposited += uint128(amount);
             
             uint256 rewardIncrease = (amount * PRECISION) / poolInfo.totalTokenSold;
             poolInfo.accumulatedRewardPerToken += rewardIncrease;
             
-            poolInfo.lastRewardBlock = block.number;
+            poolInfo.lastRewardBlock = uint64(block.number);
             
             emit RewardDeposited(amount, poolInfo.accumulatedRewardPerToken);
         }
     }
 
     // Called by IEO when tokens are sold
-    function onTokenSold(address user, uint256 amount) external override onlyIEO {
+    function onTokenSold(address user, uint256 amount)
+        external
+        onlyIEO
+    {
         // Update total tokens sold
-        poolInfo.totalTokenSold += amount;
+        poolInfo.totalTokenSold += uint128(amount);
         
         // Update user's reward tracking
         UserRewardTracking storage userTracking = userRewardTrackings[user];
-        userTracking.balance += amount;
+        userTracking.balance += uint128(amount);
         
         // Calculate reward debt increase
         uint256 debtIncrease = (amount * poolInfo.accumulatedRewardPerToken) / PRECISION;
@@ -133,7 +151,9 @@ contract RewardTracking is Ownable, IRewardTracking {
     }
 
     // Called by token contract when tokens are transferred
-    function onTokenTransfer(address from, address to, uint256 amount) external override {
+    function onTokenTransfer(address from, address to, uint256 amount)
+        external
+    {
         require(msg.sender == tokenAddress, "Only token contract can call this");
         
         // Update sender's reward tracking
@@ -142,7 +162,7 @@ contract RewardTracking is Ownable, IRewardTracking {
             
             require(fromTracking.balance >= amount, "Insufficient balance for transfer");
             
-            fromTracking.balance -= amount;
+            fromTracking.balance -= uint128(amount);
             
             // Calculate debt reduction
             uint256 debtReduction = (amount * poolInfo.accumulatedRewardPerToken) / PRECISION;
@@ -155,7 +175,7 @@ contract RewardTracking is Ownable, IRewardTracking {
         // Update receiver's reward tracking
         if (to != address(0)) {
             UserRewardTracking storage toTracking = userRewardTrackings[to];
-            toTracking.balance += amount;
+            toTracking.balance += uint128(amount);
             
             // Calculate debt increase
             uint256 debtIncrease = (amount * poolInfo.accumulatedRewardPerToken) / PRECISION;
@@ -187,22 +207,37 @@ contract RewardTracking is Ownable, IRewardTracking {
     }
     
     // View functions
-    function getPendingReward(address user) external view override returns (uint256) {
+    function getPendingReward(address user)
+        external
+        view
+        returns (uint256)
+    {
         UserRewardTracking memory userTracking = userRewardTrackings[user];
         uint256 totalReward = (userTracking.balance * poolInfo.accumulatedRewardPerToken) / PRECISION;
         return totalReward - userTracking.rewardDebt;
     }
 
-    function getUserRewardTracking(address user) external view override returns (UserRewardTracking memory) {
+    function getUserRewardTracking(address user)
+        external
+        view
+        returns (UserRewardTracking memory)
+    {
         return userRewardTrackings[user];
     }
 
-    function getPoolInfo() external view override returns (PoolInfo memory) {
+    function getPoolInfo()
+        external
+        view
+        returns (PoolInfo memory)
+    {
         return poolInfo;
     }
 
     // Emergency function
-    function emergencyWithdrawUSDC(uint256 amount) external override onlyOwner {
+    function emergencyWithdrawUSDC(uint256 amount)
+        external
+        onlyOwner
+    {
         IERC20(USDC_ADDRESS).transfer(owner(), amount);
     }
 }

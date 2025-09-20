@@ -12,13 +12,13 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
     bytes32 internal constant REENTRANCY_GUARD_FLAG_SLOT = bytes32(keccak256("fundraising.token.reentrancy.guard"));
     
     // Reentrancy guard constants
-    uint256 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
-    uint256 internal constant REENTRANCY_GUARD_ENTERED = 2;
+    uint16 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
+    uint16 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
     // State variables
-    mapping(address => bool) private _whitelist;
-    address public override rewardTrackingAddress;
     bool private _mintAuthorityFrozen;
+    address public override rewardTrackingAddress;
+    mapping(address => bool) private _whitelist;
 
     // Modifiers
     modifier callerWhitelisted() {
@@ -58,7 +58,6 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         _;
     }
 
-    // Custom decimals
     uint8 private _decimals;
 
     constructor(
@@ -86,35 +85,73 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
     }
 
     // Override functions to satisfy both ERC20 and IFundraisingToken
-    function name() public view override(ERC20, IFundraisingToken) returns (string memory) {
+    function name()
+        override(ERC20, IFundraisingToken)
+        public
+        view
+        returns (string memory)
+    {
         return super.name();
     }
 
-    function symbol() public view override(ERC20, IFundraisingToken) returns (string memory) {
+    function symbol()
+        override(ERC20, IFundraisingToken)
+        public
+        view
+        returns (string memory)
+    {
         return super.symbol();
     }
 
-    function decimals() public view override(ERC20, IFundraisingToken) returns (uint8) {
+    function decimals()
+        override(ERC20, IFundraisingToken)
+        public
+        view
+        returns (uint8)
+    {
         return _decimals;
     }
 
-    function totalSupply() public view override(ERC20, IFundraisingToken) returns (uint256) {
+    function totalSupply()
+        override(ERC20, IFundraisingToken)
+        public
+        view
+        returns (uint256)
+    {
         return super.totalSupply();
     }
 
-    function balanceOf(address account) public view override(ERC20, IFundraisingToken) returns (uint256) {
+    function balanceOf(address account)
+        override(ERC20, IFundraisingToken)
+        public
+        view
+        returns (uint256)
+    {
         return super.balanceOf(account);
     }
 
-    function allowance(address owner, address spender) public view override(ERC20, IFundraisingToken) returns (uint256) {
+    function allowance(address owner, address spender)
+        override(ERC20, IFundraisingToken)
+        public
+        view
+        returns (uint256)
+    {
         return super.allowance(owner, spender);
     }
 
-    function owner() public view override(Ownable, IFundraisingToken) returns (address) {
+    function owner()
+        override(Ownable, IFundraisingToken)
+        public
+        view
+        returns (address)
+    {
         return super.owner();
     }
 
-    function transferOwnership(address newOwner) public override(Ownable, IFundraisingToken) {
+    function transferOwnership(address newOwner)
+        override(Ownable, IFundraisingToken)
+        public
+    {
         super.transferOwnership(newOwner);
     }
 
@@ -178,7 +215,10 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         emit AddressRemovedFromWhitelist(account);
     }
 
-    function batchAddToWhitelist(address[] memory accounts) public override onlyOwner {
+    function batchAddToWhitelist(address[] memory accounts)
+        public
+        onlyOwner
+    {
         for (uint256 i = 0; i < accounts.length; i++) {
             if (accounts[i] != address(0)) {
                 _whitelist[accounts[i]] = true;
@@ -187,7 +227,10 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         }
     }
 
-    function batchRemoveFromWhitelist(address[] memory accounts) public override onlyOwner {
+    function batchRemoveFromWhitelist(address[] memory accounts)
+        public
+        onlyOwner
+    {
         for (uint256 i = 0; i < accounts.length; i++) {
             if (accounts[i] != address(0)) {
                 _whitelist[accounts[i]] = false;
@@ -201,7 +244,10 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
     }
 
     // Setter for reward tracking address
-    function setRewardTrackingAddress(address _rewardTrackingAddress) external override onlyOwner {
+    function setRewardTrackingAddress(address _rewardTrackingAddress)
+        external
+        onlyOwner
+    {
         if (_rewardTrackingAddress == address(0)) {
             revert FundraisingTokenErrors.CannotWhitelistZeroAddress();
         }
@@ -212,7 +258,14 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
     }
 
     // Override transfer functions to include whitelist checks and reward tracking
-    function transfer(address to, uint256 amount) public override(ERC20, IFundraisingToken) callerWhitelisted onlyWhitelisted(_msgSender(), to) nonReentrant returns (bool) {
+    function transfer(address to, uint256 amount)
+        override(ERC20, IFundraisingToken)
+        public
+        callerWhitelisted
+        onlyWhitelisted(_msgSender(), to)
+        nonReentrant
+        returns (bool)
+    {
         bool success = super.transfer(to, amount);
         
         // Notify reward tracking contract if enabled
@@ -223,7 +276,14 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         return success;
     }
 
-    function transferFrom(address from, address to, uint256 amount) public override(ERC20, IFundraisingToken) callerWhitelisted onlyWhitelisted(from, to) nonReentrant returns (bool) {
+    function transferFrom(address from, address to, uint256 amount)
+        override(ERC20, IFundraisingToken)
+        public
+        callerWhitelisted
+        onlyWhitelisted(from, to)
+        nonReentrant
+        returns (bool)
+    {
         bool success = super.transferFrom(from, to, amount);
         
         // Notify reward tracking contract if enabled
@@ -234,7 +294,12 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         return success;
     }
 
-    function approve(address spender, uint256 amount) public override(ERC20, IFundraisingToken) callerWhitelisted returns (bool) {
+    function approve(address spender, uint256 amount)
+        override(ERC20, IFundraisingToken)
+        public
+        callerWhitelisted
+        returns (bool)
+    {
         return super.approve(spender, amount);
     }
 
@@ -242,7 +307,11 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         return _mintAuthorityFrozen;
     }
 
-    function mint(address to, uint256 amount) public override onlyOwner mintAuthorityNotFrozen {
+    function mint(address to, uint256 amount)
+        public
+        onlyOwner
+        mintAuthorityNotFrozen
+    {
         if (!_whitelist[to]) {
             revert FundraisingTokenErrors.RecipientMustBeWhitelisted();
         }

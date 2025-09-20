@@ -12,26 +12,26 @@ interface IRewardTracking {
     
     /**
      * @notice Structure to track user reward information
-     * @param balance The user's current token balance
-     * @param rewardDebt The user's reward debt (prevents double-claiming)
+     * @param balance The user's current token balance (optimized to uint128 for gas efficiency)
+     * @param rewardDebt The user's reward debt (prevents double-claiming) - kept as uint256 for precision
      */
     struct UserRewardTracking {
-        uint256 balance;
-        uint256 rewardDebt;
+        uint128 balance;  // Optimized: tokens won't exceed 2^128-1
+        uint256 rewardDebt;  // Kept as uint256 for precision calculations
     }
     
     /**
      * @notice Structure to track pool information
-     * @param totalTokenSold Total amount of tokens sold through IEO
-     * @param accumulatedRewardPerToken Accumulated reward per token (in USDC)
-     * @param totalUSDCDeposited Total amount of USDC deposited
-     * @param lastRewardBlock Last block number when pool was updated
+     * @param totalTokenSold Total amount of tokens sold through IEO (optimized to uint128)
+     * @param accumulatedRewardPerToken Accumulated reward per token (in USDC) - kept as uint256 for precision
+     * @param totalUSDCDeposited Total amount of USDC deposited (optimized to uint128)
+     * @param lastRewardBlock Last block number when pool was updated (optimized to uint64)
      */
     struct PoolInfo {
-        uint256 totalTokenSold;
-        uint256 accumulatedRewardPerToken;
-        uint256 totalUSDCDeposited;
-        uint256 lastRewardBlock;
+        uint128 totalTokenSold;  // Optimized: tokens won't exceed 2^128-1
+        uint256 accumulatedRewardPerToken;  // Kept as uint256 for precision calculations
+        uint128 totalUSDCDeposited;  // Optimized: USDC has 6 decimals, 2^128-1 is more than enough
+        uint64 lastRewardBlock;  // Optimized: block numbers won't exceed 2^64-1
     }
 
     // ============ Events ============

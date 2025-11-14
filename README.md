@@ -5,29 +5,32 @@ A complete fundraising platform with ERC20 token, IEO (Initial Exchange Offering
 ##  Overview
 
 This project provides a comprehensive fundraising solution with:
-- **FundraisingToken**: Whitelisted ERC20 token with frozen mint authority
-- **IEO Contract**: Token sales with price oracle integration and time-based controls
-- **Reward Tracking**: Automated reward distribution system for token holders
+- **FundraisingToken**: Whitelisted ERC20 token with frozen mint authority and reward-tracking callbacks
+- **IEO Contract**: Token sales with price oracle integration, price safeguards, and time-based controls
+- **Reward Tracking**: Automated USDC reward distribution for token holders
 
 ##  Key Features
 
 ### FundraisingToken
--  ERC20 compliant with whitelist system
--  Permanently frozen mint authority
--  Reward tracking integration
+-  ERC20 with strict whitelist checks on sender and recipient
+-  Initial supply minted to owner, then mint authority is permanently frozen
+-  Business admin management (owner can update)
+-  Reward tracking integration: notifies tracking contract on transfers
 
 ### IEO Contract
--  Token sales with USDC
--  Price oracle integration
--  Configurable claim/refund periods
--  Multi-investment support per user
--  Business admin withdrawal system
+-  USDC-denominated token sales
+-  Price oracle integration with timestamp and decimals
+-  Configurable time windows via a single `delayDays_` constructor param (claim, refund, withdrawal)
+-  Multi-investment per user with full history and indexing
+-  Business admin withdrawals with per-investment withdrawal delays
+-  Pausable while active (business admin)
+-  Price validation bounds (min/max) and an oracle circuit breaker (staleness and deviation)
 
 ### Reward Tracking
--  High-precision reward calculations
--  Per-token reward distribution
--  Transfer-based reward updates
--  USDC reward claims
+-  High-precision reward accounting using accumulated reward per token (1e18 precision)
+-  USDC reward pool topped up by owner deposits
+-  Updates on token sales and transfers to maintain holder balances and reward debt
+-  Users can claim accrued USDC rewards at any time
 
 ##  Architecture
 
@@ -50,10 +53,6 @@ npx hardhat compile
 ```bash
 # Run all tests
 npx hardhat test
-
-# Run specific contract tests
-npx hardhat test contracts/FundraisingToken.t.sol
-npx hardhat test contracts/IEO.t.sol
 ```
 
 ### Deployment
@@ -67,33 +66,66 @@ npx hardhat ignition deploy ignition/modules/FundraisingSystem.ts --network loca
 
 | Contract | Purpose | Key Features |
 |----------|---------|--------------|
-| **FundraisingToken** | ERC20 Token | Whitelist, Frozen Mint, Reward Integration |
-| **IEO** | Token Sales | Oracle Pricing, Time Controls, Multi-Investment |
-| **RewardTracking** | Reward Distribution | High Precision, Transfer Updates, USDC Claims |
+| **FundraisingToken** | ERC20 Token | Whitelist, Frozen Mint, Reward Integration, Business Admin |
+| **IEO** | Token Sales | Oracle Pricing, Time Controls, Multi-Investment, Pause, Safeguards |
+| **RewardTracking** | Reward Distribution | High Precision, Transfer Updates, USDC Claims, Owner Deposits |
 
 ##  Configuration
 
 ### IEO Parameters
-- **Claim Delay**: 14 days (configurable)
-- **Refund Period**: 14 days (configurable)
-- **Withdrawal Delay**: 14 days (configurable)
-- **Min Investment**: 100 USDC (configurable)
-- **Max Investment**: 100,000 USDC (configurable)
+- **Time Windows**: Set via constructor `delayDays_`; `CLAIM_DELAY`, `REFUND_PERIOD`, and `WITHDRAWAL_DELAY` are all `delayDays_ * 1 days`
+- **Min/Max Investment**: Set via constructor (`MIN_INVESTMENT`, `MAX_INVESTMENT`)
+- **USDC Address**: On-chain constant in contracts; update in code for your network
 
 ### Token Parameters
-- **Name**: FundraisingToken
-- **Symbol**: FRT
-- **Decimals**: 18
-- **Initial Supply**: 1,000,000 tokens
-- **Mint Authority**: Permanently frozen
+- **Name/Symbol/Decimals**: Provided via constructor
+- **Initial Supply**: Minted to owner at deployment
+- **Mint Authority**: Permanently frozen after initial mint
+- **Business Admin**: Required in constructor and can be updated by owner
 
-##  Testing
+##  Security Features
 
-The project includes comprehensive tests:
-- **Unit Tests**: Individual contract functionality
-- **Integration Tests**: Cross-contract interactions
-- **Security Tests**: Vulnerability detection
-- **Gas Tests**: Performance optimization
+- **Reentrancy Guards**: Storage-slot guards in token, IEO, and rewards
+- **Pausable IEO**: Business admin can pause/unpause while IEO is active
+- **Price Validation**: Optional min/max token price bounds
+- **Oracle Circuit Breaker**: Staleness threshold, max deviation, enable/disable, and reset
+
+##  Access Control and Roles
+
+- **Owner**: Standard ownership (via `Ownable`) across contracts
+- **Admin (IEO)**: Immutable `admin` address provided at deployment
+- **Business Admin**:
+  - IEO: Can pause/unpause, set price validation/circuit breaker, and withdraw USDC
+  - Token: Manages whitelist and can be updated by owner
+
+##  Oracle and Circuit Breaker
+
+- **Oracle Interface**: `IPriceOracle.getPrice(address token) returns (price, decimals, timestamp)`
+- **Safeguards**:
+  - Price validation against optional `minTokenPrice`/`maxTokenPrice`
+  - Circuit breaker checks price staleness and deviation vs. `lastValidPrice`
+  - When triggered, investments revert until reset/conditions resolve
+
+##  Constants and Addresses
+
+- **USDC Address**: Hardcoded as `0x966c69ae5b4fB4744e976EB058cfe7592bD935d2` in `IEO` and `RewardTracking`
+  - Update this in code for your deployment network
+
+##  Public APIs (High Level)
+
+- **IEO**
+  - Actions: `invest`, `adminRecordInvestment`, `claimTokens`, `refundInvestment`, `refundInvestmentByIndex`
+  - Admin/Biz Admin: `startIEO`, `endIEO`, `pauseIEO`, `unpauseIEO`, `setPriceOracle`, `setBusinessAdmin`
+  - Biz Admin only: `setPriceValidation`, `setCircuitBreaker`, `resetCircuitBreaker`, `enableCircuitBreaker`, `disableCircuitBreaker`, `withdrawUSDC`, `withdrawAllUSDC`
+  - Views: `getUserInvestments`, `getRefundableInvestments`, `getClaimableInvestments`, `getWithdrawableAmount`, `getInvestorCount`, `getInvestor`
+
+- **RewardTracking**
+  - Actions: `depositUSDC` (owner), `claimReward`
+  - Views: `getPendingReward`, `getUserRewardTracking`, `getPoolInfo`
+
+- **FundraisingToken**
+  - Actions: whitelist management (`addToWhitelist`, `removeFromWhitelist`, batch variants), `setRewardTrackingAddress`, `setBusinessAdmin`
+  - Transfers notify reward tracking when enabled
 
 ##  Deployment Strategy
 

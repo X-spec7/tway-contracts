@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.24;
 
 library FundraisingTokenErrors {
     // Whitelist related errors
@@ -38,4 +38,6 @@ library FundraisingTokenErrors {
     
     // Reentrancy related errors
     error ReentrantCallBlocked();
+
+    error ZeroAddress();
 }

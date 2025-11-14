@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.24;
 
 import "./dependencies/openzeppelin/ERC20.sol";
 import "./libraries/Ownable.sol";
 import "./libraries/errors/FundraisingTokenErrors.sol";
+import "./libraries/errors/FundraisingErrors.sol";
 import "./interfaces/IFundraisingToken.sol";
 
 contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
@@ -18,7 +19,11 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
     // State variables
     bool private _mintAuthorityFrozen;
     address public override rewardTrackingAddress;
+    address public businessAdmin;
     mapping(address => bool) private _whitelist;
+
+    // Events
+    event BusinessAdminUpdated(address indexed oldBusinessAdmin, address indexed newBusinessAdmin);
 
     // Modifiers
     modifier callerWhitelisted() {
@@ -58,14 +63,26 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         _;
     }
 
+    modifier onlyBusinessAdmin() {
+        if (msg.sender != businessAdmin && msg.sender != owner()) {
+            revert FundraisingErrors.NotAdmin();
+        }
+        _;
+    }
+
     uint8 private _decimals;
 
     constructor(
         string memory name_,
         string memory symbol_,
         uint8 decimals_,
+        address businessAdmin_,
         uint256 initialSupply
     ) ERC20(name_, symbol_) Ownable(_msgSender()) {
+      if (businessAdmin_ == address(0)) {
+            revert FundraisingTokenErrors.ZeroAddress();
+        }
+
         _decimals = decimals_;
         rewardTrackingAddress = address(0);
         
@@ -74,7 +91,7 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         emit AddressWhitelisted(_msgSender());
         
         // Mint initial supply to owner
-        _mint(_msgSender(), initialSupply);
+        _mint(_msgSender(), initialSupply * 10 ** decimals_);
         
         // Freeze mint authority after initial mint
         _mintAuthorityFrozen = true;
@@ -82,6 +99,8 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         
         // Initialize reentrancy guard
         setRewardTrackingEnabled(false);
+
+        businessAdmin = businessAdmin_;
     }
 
     // Override functions to satisfy both ERC20 and IFundraisingToken
@@ -130,13 +149,13 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         return super.balanceOf(account);
     }
 
-    function allowance(address owner, address spender)
+    function allowance(address ownerAddr, address spender)
         override(ERC20, IFundraisingToken)
         public
         view
         returns (uint256)
     {
-        return super.allowance(owner, spender);
+        return super.allowance(ownerAddr, spender);
     }
 
     function owner()
@@ -198,8 +217,23 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         }
     }
 
+    // Setter for business admin address (admin only)
+    function setBusinessAdmin(address _businessAdmin)
+        external
+        onlyOwner
+    {
+        if (_businessAdmin == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        
+        address oldBusinessAdmin = businessAdmin;
+        businessAdmin = _businessAdmin;
+        
+        emit BusinessAdminUpdated(oldBusinessAdmin, _businessAdmin);
+    }
+
     // Whitelist management functions
-    function addToWhitelist(address account) public override onlyOwner {
+    function addToWhitelist(address account) public override onlyBusinessAdmin {
         if (account == address(0)) {
             revert FundraisingTokenErrors.CannotWhitelistZeroAddress();
         }
@@ -207,7 +241,7 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
         emit AddressWhitelisted(account);
     }
 
-    function removeFromWhitelist(address account) public override onlyOwner {
+    function removeFromWhitelist(address account) public override onlyBusinessAdmin {
         if (account == address(0)) {
             revert FundraisingTokenErrors.CannotWhitelistZeroAddress();
         }
@@ -217,7 +251,7 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
 
     function batchAddToWhitelist(address[] memory accounts)
         public
-        onlyOwner
+        onlyBusinessAdmin
     {
         for (uint256 i = 0; i < accounts.length; i++) {
             if (accounts[i] != address(0)) {
@@ -229,7 +263,7 @@ contract FundraisingToken is ERC20, Ownable, IFundraisingToken {
 
     function batchRemoveFromWhitelist(address[] memory accounts)
         public
-        onlyOwner
+        onlyBusinessAdmin
     {
         for (uint256 i = 0; i < accounts.length; i++) {
             if (accounts[i] != address(0)) {

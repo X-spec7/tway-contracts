@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.24;
 
 import "./interfaces/IERC20.sol";
 import "./interfaces/IPriceOracle.sol";
@@ -16,8 +16,10 @@ contract IEO is Ownable, IIEO {
     uint8 internal constant REENTRANCY_GUARD_NOT_ENTERED = 1;
     uint8 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
-    address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    address public constant override USDC_ADDRESS = 0x966c69ae5b4fB4744e976EB058cfe7592bD935d2;
     uint8 public constant MAX_PRICE_DECIMALS = 18;
+    uint8 public constant TOKEN_DECIMALS = 18;
+    uint8 public constant USDC_DECIMALS = 18;
     
     address public immutable override tokenAddress;
     address public immutable override admin;
@@ -102,41 +104,41 @@ contract IEO is Ownable, IIEO {
     }
 
     constructor(
-        address _tokenAddress,
-        address _admin,
-        address _businessAdmin,
-        uint256 _delayDays,
-        uint256 _minInvestment,
-        uint256 _maxInvestment
+        address tokenAddress_,
+        address admin_,
+        address businessAdmin_,
+        uint256 delayDays_,
+        uint256 minInvestment_,
+        uint256 maxInvestment_
     ) Ownable(msg.sender) {
-        if (_tokenAddress == address(0)) {
+        if (tokenAddress_ == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
-        if (_admin == address(0)) {
+        if (admin_ == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
-        if (_businessAdmin == address(0)) {
+        if (businessAdmin_ == address(0)) {
             revert FundraisingErrors.ZeroAddress();
         }
-        if (_delayDays == 0) {
+        if (delayDays_ == 0) {
             revert FundraisingErrors.InvalidDelayDays();
         }
-        if (_minInvestment == 0) {
+        if (minInvestment_ == 0) {
             revert FundraisingErrors.InvalidMinInvestment();
         }
-        if (_maxInvestment <= _minInvestment) {
+        if (maxInvestment_ <= minInvestment_) {
             revert FundraisingErrors.InvalidInvestmentRange();
         }
         
-        tokenAddress = _tokenAddress;
-        admin = _admin;
-        businessAdmin = _businessAdmin;
+        tokenAddress = tokenAddress_;
+        admin = admin_;
+        businessAdmin = businessAdmin_;
         
-        CLAIM_DELAY = uint32(_delayDays * 1 days);
-        REFUND_PERIOD = uint32(_delayDays * 1 days);
-        MIN_INVESTMENT = uint128(_minInvestment);
-        MAX_INVESTMENT = uint128(_maxInvestment);
-        WITHDRAWAL_DELAY = uint32(_delayDays * 1 days);
+        CLAIM_DELAY = uint32(delayDays_ * 1 days);
+        REFUND_PERIOD = uint32(delayDays_ * 1 days);
+        MIN_INVESTMENT = uint128(minInvestment_);
+        MAX_INVESTMENT = uint128(maxInvestment_);
+        WITHDRAWAL_DELAY = uint32(delayDays_ * 1 days);
         
         rewardTrackingAddress = address(0);
         
@@ -398,23 +400,21 @@ contract IEO is Ownable, IIEO {
         emit IEOEnded(totalRaised, totalTokensSold);
     }
 
-    function calculateTokenAmount(uint256 usdcAmount, uint256 tokenPrice, uint256 priceDecimals)
-        internal
-        pure
-        returns (uint256)
-    {
-        // Validate priceDecimals range to prevent overflow
+    function calculateTokenAmount(
+        uint256 usdcAmount,
+        uint256 tokenPrice,
+        uint256 priceDecimals
+    ) internal pure returns (uint256) {
         require(priceDecimals <= MAX_PRICE_DECIMALS, "Price decimals too high");
-        
-        // Calculate multiplier safely
-        uint256 multiplier = 10 ** priceDecimals;
-        
-        // Calculate numerator
-        uint256 numerator = usdcAmount * 1e18 * multiplier;
-        
-        // Validate no overflow occurred by checking the reverse calculation
-        require(numerator / usdcAmount / 1e18 == multiplier, "Overflow in token calculation");
-        
+
+        // scaling = 10^(priceDecimals + tokenDecimals - usdcDecimals)
+        uint256 exponent = priceDecimals + TOKEN_DECIMALS - USDC_DECIMALS;
+        uint256 scaling = 10 ** exponent;
+
+        // safe-ish overflow check (depends on MAX limits)
+        uint256 numerator = usdcAmount * scaling;
+        require(numerator / scaling == usdcAmount, "Overflow in token calculation");
+
         return numerator / tokenPrice;
     }
 
@@ -447,7 +447,7 @@ contract IEO is Ownable, IIEO {
             }
         }
 
-        // Calculate token amount 
+        // Calculate token amount
         uint256 tokenAmount = calculateTokenAmount(usdcAmount, tokenPrice, priceDecimals);
 
         // Transfer USDC from investor
@@ -482,6 +482,77 @@ contract IEO is Ownable, IIEO {
         }
 
         emit InvestmentMade(msg.sender, usdcAmount, tokenAmount);
+    }
+
+    /**
+     * @notice Admin records an off-chain investment on behalf of a user.
+     * @dev This does NOT transfer USDC; it assumes USDC has already been received by the contract
+     *      (e.g., via off-chain on-ramp payout). It calculates token amount using oracle and records
+     *      a new investment for the specified investor address.
+     *      Access restricted to admin/owner.
+     * @param investor The investor wallet address (must be whitelisted in the token when claiming).
+     * @param usdcAmount The invested USDC amount scaled to USDC_DECIMALS.
+     */
+    function adminRecordInvestment(address investor, uint256 usdcAmount)
+        external
+        onlyAdmin
+        nonReentrant
+        circuitBreakerNotTriggered
+    {
+        if (investor == address(0)) {
+            revert FundraisingErrors.ZeroAddress();
+        }
+        if (usdcAmount < MIN_INVESTMENT || usdcAmount > MAX_INVESTMENT) {
+            revert FundraisingErrors.InvalidInvestmentAmount();
+        }
+
+        // Get token price from oracle (now includes timestamp)
+        (uint256 tokenPrice, uint256 priceDecimals, uint256 priceTimestamp) = IPriceOracle(priceOracle).getPrice(tokenAddress);
+        if (tokenPrice == 0) {
+            revert FundraisingErrors.InvalidPrice();
+        }
+
+        // Apply oracle circuit breaker checks
+        _validateOraclePrice(tokenPrice, priceTimestamp);
+
+        // Validate price if bounds are set
+        if (minTokenPrice > 0 || maxTokenPrice > 0) {
+            if (minTokenPrice > 0 && tokenPrice < minTokenPrice) {
+                revert FundraisingErrors.InvalidPrice();
+            }
+            if (maxTokenPrice > 0 && tokenPrice > maxTokenPrice) {
+                revert FundraisingErrors.InvalidPrice();
+            }
+        }
+
+        // Calculate token amount
+        uint256 tokenAmount = calculateTokenAmount(usdcAmount, tokenPrice, priceDecimals);
+
+        // Create new separate investment for the specified investor
+        Investment memory newInvestment = Investment({
+            usdcAmount: uint128(usdcAmount),
+            tokenAmount: uint128(tokenAmount),
+            investmentTime: uint64(block.timestamp),
+            claimed: false,
+            refunded: false
+        });
+
+        userInvestments[investor].push(newInvestment);
+
+        if (!isInvestor[investor]) {
+            isInvestor[investor] = true;
+            investors.push(investor);
+        }
+
+        totalRaised += uint128(usdcAmount);
+        totalTokensSold += uint128(tokenAmount);
+
+        // Notify reward tracking contract if enabled
+        if (isRewardTrackingEnabled() && rewardTrackingAddress != address(0)) {
+            IRewardTracking(rewardTrackingAddress).onTokenSold(investor, tokenAmount);
+        }
+
+        emit InvestmentMade(investor, usdcAmount, tokenAmount);
     }
 
     // Internal function to validate oracle price
@@ -809,7 +880,6 @@ contract IEO is Ownable, IIEO {
         return IERC20(USDC_ADDRESS).balanceOf(address(this));
     }
 
-    // New view functions for withdrawal tracking
     function getWithdrawableAmount()
         public
         view

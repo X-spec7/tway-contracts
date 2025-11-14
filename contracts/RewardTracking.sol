@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.24;
 
 import "./interfaces/IERC20.sol";
 import "./libraries/Ownable.sol";
@@ -15,7 +15,7 @@ contract RewardTracking is Ownable, IRewardTracking {
     uint8 internal constant REENTRANCY_GUARD_ENTERED = 2;
     
     // Constants
-    address public constant override USDC_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    address public constant override USDC_ADDRESS = 0x966c69ae5b4fB4744e976EB058cfe7592bD935d2;
     uint256 public constant override PRECISION = 1e18;
 
     // Immutable addresses (set in constructor)
